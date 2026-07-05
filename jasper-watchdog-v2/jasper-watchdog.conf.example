@@ -37,3 +37,9 @@ PGPASSFILE="/etc/jasper-watchdog/pgpass"
 PG_CONNECT_TIMEOUT_SEC=3
 PG_STATEMENT_TIMEOUT_MS=3500
 PG_LOCK_TIMEOUT_MS=800
+
+# Optional alert hook. Leave unset to disable. When set, this command is
+# executed as: "$ALERT_COMMAND" "<event>" "<message>" on incident_created,
+# circuit_breaker_tripped, and recovery_failed. Wire it to Slack, email, or
+# any paging system.
+# ALERT_COMMAND="/usr/local/sbin/jasper-watchdog-notify.sh"

@@ -52,6 +52,7 @@ create_incident() {
   mark "health_url=$HEALTH_URL"
   mark "first_probe=$FIRST_PROBE"
   mark "confirmation_probe=$CONFIRM_PROBE"
+  notify_human "incident_created" "JasperServer watchdog incident $INCIDENT_ID: confirmed health failure. See $INCIDENT"
 }
 
 take_restart_slot() {
@@ -73,6 +74,21 @@ take_restart_slot() {
 
   printf '%s\n' "$now" >> "$tmp_file"
   mv "$tmp_file" "$RESTART_HISTORY_FILE"
+  return 0
+}
+
+notify_human() {
+  local event="$1"
+  local message="$2"
+
+  if [[ -z "${ALERT_COMMAND:-}" ]]; then
+    return 0
+  fi
+
+  if ! "$ALERT_COMMAND" "$event" "$message"; then
+    mark "phase=notify_human result=alert_command_failed event=$event command=$ALERT_COMMAND"
+  fi
+
   return 0
 }
 
@@ -366,6 +382,7 @@ main() {
   MAX_AUTORESTARTS="${MAX_AUTORESTARTS:-3}"
   RESTART_WINDOW_SEC="${RESTART_WINDOW_SEC:-900}"
   RESTART_HISTORY_FILE="${RESTART_HISTORY_FILE:-$(dirname "$GLOBAL_LOG")/restart-history.log}"
+  ALERT_COMMAND="${ALERT_COMMAND:-}"
 
   mkdir -p "$INCIDENT_ROOT" "$(dirname "$GLOBAL_LOG")" /run/lock
   chmod 0700 "$INCIDENT_ROOT"
@@ -409,6 +426,7 @@ main() {
   if ! take_restart_slot; then
     INCIDENT_STATUS="BLOCKED_CIRCUIT_BREAKER"
     mark "phase=circuit_breaker result=blocked max_autorestarts=$MAX_AUTORESTARTS window_sec=$RESTART_WINDOW_SEC"
+    notify_human "circuit_breaker_tripped" "JasperServer watchdog: circuit breaker blocked automatic restart for incident $INCIDENT_ID after $MAX_AUTORESTARTS restarts in ${RESTART_WINDOW_SEC}s"
     write_summary "$INCIDENT_STATUS"
     mark "incident_status=$INCIDENT_STATUS"
     exit 1
@@ -424,6 +442,7 @@ main() {
   fi
 
   INCIDENT_STATUS="NOT_RECOVERED"
+  notify_human "recovery_failed" "JasperServer watchdog: incident $INCIDENT_ID restarted $JASPER_SERVICE but health did not recover within ${RECOVERY_TIMEOUT_SEC}s"
   write_summary "$INCIDENT_STATUS"
   mark "incident_status=$INCIDENT_STATUS"
   exit 1

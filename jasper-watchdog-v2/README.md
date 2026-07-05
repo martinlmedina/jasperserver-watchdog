@@ -138,3 +138,11 @@ the incident `BLOCKED_CIRCUIT_BREAKER`, skips `systemctl restart`, and requires 
 to investigate and restart the service manually. Restart timestamps are tracked in a
 state file next to `GLOBAL_LOG` (`restart-history.log` by default, overridable via
 `RESTART_HISTORY_FILE`).
+
+## 8. Alerting hook
+
+Set `ALERT_COMMAND` in `jasper-watchdog.conf` to the path of an executable. The watchdog
+calls it as `"$ALERT_COMMAND" "<event>" "<message>"` on three events: `incident_created`,
+`circuit_breaker_tripped`, and `recovery_failed`. Leave it unset to disable alerting; a
+failing `ALERT_COMMAND` is logged but never blocks the watchdog. Wire it to Slack,
+email, or any paging system outside this script.

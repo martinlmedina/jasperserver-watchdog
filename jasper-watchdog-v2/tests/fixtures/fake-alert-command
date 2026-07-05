@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+printf 'event=%s message=%s\n' "$1" "$2" >> "$ALERT_LOG"
+exit 0
