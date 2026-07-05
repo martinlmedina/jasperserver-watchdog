@@ -91,11 +91,12 @@ pgpass="$etc_dir/pgpass"
 echo
 echo "== Configuration required =="
 if [[ "$conf_created" -eq 1 ]]; then
-  echo "[!] jasper-watchdog.conf was created from the example. You MUST edit these"
-  echo "    required values before enabling:"
+  echo "[!] jasper-watchdog.conf was created from the example with working defaults."
+  echo "    Review it and adjust these to match this server before enabling:"
   echo "      HEALTH_URL      - endpoint that proves JasperServer is alive"
   echo "      JASPER_SERVICE  - the actual systemd service name"
   echo "      JASPER_LOG_DIR  - the Tomcat/Jasper logs directory"
+  echo "      PGHOST/PGPORT/PGDATABASE/PGUSER - the monitoring DB connection"
   echo "    Optional: HEALTH_BODY_MARKER, SLOW_RESPONSE_THRESHOLD_SEC,"
   echo "              ALERT_COMMAND, MAX_AUTORESTARTS, RESTART_WINDOW_SEC"
 else
