@@ -30,6 +30,13 @@ teardown() {
   [ "$mode" = "700" ]
 }
 
+@test "log parent directory is not world-accessible" {
+  bash "$INSTALLER"
+  mode="$(stat -c '%a' "$STAGE/var/log/jasper-watchdog" 2>/dev/null || echo skip)"
+  if [ "$mode" = "skip" ]; then skip "stat -c unsupported here"; fi
+  [ "$mode" = "750" ]
+}
+
 @test "re-install preserves an existing config" {
   bash "$INSTALLER"
   printf 'CUSTOM_EDIT=1\n' >> "$STAGE/etc/jasper-watchdog/jasper-watchdog.conf"

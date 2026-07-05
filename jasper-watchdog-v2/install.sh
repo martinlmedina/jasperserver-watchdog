@@ -31,6 +31,7 @@ sbin_dir="$DESTDIR/usr/local/sbin"
 systemd_dir="$DESTDIR/etc/systemd/system"
 logrotate_dir="$DESTDIR/etc/logrotate.d"
 tmpfiles_dir="$DESTDIR/etc/tmpfiles.d"
+log_dir="$DESTDIR/var/log/jasper-watchdog"
 incident_dir="$DESTDIR/var/log/jasper-watchdog/incidents"
 
 # Verify every source artifact exists before touching the system.
@@ -51,6 +52,7 @@ done
 
 # Owned directories (mode enforced).
 install -d -m 0750 "${own[@]}" "$etc_dir"
+install -d -m 0750 "${own[@]}" "$log_dir"
 install -d -m 0700 "${own[@]}" "$incident_dir"
 
 # Standard system directories: create only when staging (they exist on a real
