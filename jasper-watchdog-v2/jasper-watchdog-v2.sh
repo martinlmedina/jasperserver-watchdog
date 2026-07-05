@@ -54,6 +54,28 @@ create_incident() {
   mark "confirmation_probe=$CONFIRM_PROBE"
 }
 
+take_restart_slot() {
+  local now tmp_file count
+
+  now=$(date +%s)
+  tmp_file="$(mktemp "${RESTART_HISTORY_FILE}.XXXXXX")"
+
+  awk -v now="$now" -v window="$RESTART_WINDOW_SEC" \
+    '$1 ~ /^[0-9]+$/ && (now - $1) < window { print $1 }' \
+    "$RESTART_HISTORY_FILE" > "$tmp_file" 2>/dev/null || true
+
+  count=$(wc -l < "$tmp_file")
+
+  if (( count >= MAX_AUTORESTARTS )); then
+    mv "$tmp_file" "$RESTART_HISTORY_FILE"
+    return 1
+  fi
+
+  printf '%s\n' "$now" >> "$tmp_file"
+  mv "$tmp_file" "$RESTART_HISTORY_FILE"
+  return 0
+}
+
 capture() {
   local filename="$1"
   shift
@@ -341,11 +363,15 @@ main() {
   RECOVERY_RETRY_SEC="${RECOVERY_RETRY_SEC:-3}"
   TAIL_LINES="${TAIL_LINES:-1200}"
   JASPER_LOG_DIR="${JASPER_LOG_DIR:-/opt/jasperreports-server-cp-7.1.0/apache-tomcat/logs}"
+  MAX_AUTORESTARTS="${MAX_AUTORESTARTS:-3}"
+  RESTART_WINDOW_SEC="${RESTART_WINDOW_SEC:-900}"
+  RESTART_HISTORY_FILE="${RESTART_HISTORY_FILE:-$(dirname "$GLOBAL_LOG")/restart-history.log}"
 
   mkdir -p "$INCIDENT_ROOT" "$(dirname "$GLOBAL_LOG")" /run/lock
   chmod 0700 "$INCIDENT_ROOT"
   touch "$GLOBAL_LOG"
   chmod 0640 "$GLOBAL_LOG"
+  touch "$RESTART_HISTORY_FILE"
 
   # One monitor execution at a time. This also protects against a manual run while
   # the systemd timer is active.
@@ -379,6 +405,15 @@ main() {
   create_incident
   INCIDENT_STATUS="CAPTURING"
   capture_pre_restart
+
+  if ! take_restart_slot; then
+    INCIDENT_STATUS="BLOCKED_CIRCUIT_BREAKER"
+    mark "phase=circuit_breaker result=blocked max_autorestarts=$MAX_AUTORESTARTS window_sec=$RESTART_WINDOW_SEC"
+    write_summary "$INCIDENT_STATUS"
+    mark "incident_status=$INCIDENT_STATUS"
+    exit 1
+  fi
+
   restart_service
 
   if wait_for_recovery; then

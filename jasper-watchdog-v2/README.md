@@ -128,3 +128,13 @@ Do not cancel PostgreSQL backends, kill JVM threads, or reboot the VM from this 
 4. record whether health recovered.
 
 This preserves the evidence needed to determine whether the root cause was Jasper/Tomcat, a blocked or saturated PostgreSQL workload, resource pressure, or the surrounding host.
+
+## 7. Restart circuit breaker
+
+`MAX_AUTORESTARTS` (default 3) and `RESTART_WINDOW_SEC` (default 900) bound how many
+automatic restarts the watchdog performs inside a rolling time window. Evidence is
+always captured before this check runs. Once the limit is reached, the watchdog marks
+the incident `BLOCKED_CIRCUIT_BREAKER`, skips `systemctl restart`, and requires a human
+to investigate and restart the service manually. Restart timestamps are tracked in a
+state file next to `GLOBAL_LOG` (`restart-history.log` by default, overridable via
+`RESTART_HISTORY_FILE`).
