@@ -1,0 +1,11 @@
+[Unit]
+Description=Run JasperServer Watchdog v2 every 15 seconds
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=15s
+AccuracySec=1s
+Unit=jasper-watchdog.service
+
+[Install]
+WantedBy=timers.target

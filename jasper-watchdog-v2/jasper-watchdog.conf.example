@@ -1,0 +1,32 @@
+# /etc/jasper-watchdog/jasper-watchdog.conf
+# This file is sourced by Bash. Keep permissions at 0600 root:root.
+
+# Use an application endpoint, not only TCP/8080. Adjust it to the endpoint that
+# represents a working JasperServer login/application response in this server.
+HEALTH_URL="http://127.0.0.1:8080/jasperserver/login.html"
+EXPECTED_HTTP_CODES="200 302"
+JASPER_SERVICE="jasperserver"
+
+# Incident repository. Each confirmed failure creates one subdirectory.
+INCIDENT_ROOT="/var/log/jasper-watchdog/incidents"
+GLOBAL_LOG="/var/log/jasper-watchdog/watchdog.log"
+JASPER_LOG_DIR="/opt/jasperreports-server-cp-7.1.0/apache-tomcat/logs"
+
+# Timing. The systemd timer runs this monitor every 15 seconds.
+HEALTH_CONNECT_TIMEOUT_SEC=3
+HEALTH_MAX_TIME_SEC=10
+CONFIRM_DELAY_SEC=5
+CAPTURE_TIMEOUT_SEC=8
+RECOVERY_TIMEOUT_SEC=180
+RECOVERY_RETRY_SEC=3
+TAIL_LINES=1200
+
+# Dedicated read-only PostgreSQL monitoring account. Do not reuse jasperdb.
+PGHOST="127.0.0.1"
+PGPORT="5432"
+PGDATABASE="jasperserver"
+PGUSER="jasper_watchdog"
+PGPASSFILE="/etc/jasper-watchdog/pgpass"
+PG_CONNECT_TIMEOUT_SEC=3
+PG_STATEMENT_TIMEOUT_MS=3500
+PG_LOCK_TIMEOUT_MS=800

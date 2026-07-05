@@ -1,0 +1,13 @@
+[Unit]
+Description=JasperServer Watchdog v2 - health check and pre-restart evidence capture
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/jasper-watchdog-v2
+User=root
+Group=root
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
