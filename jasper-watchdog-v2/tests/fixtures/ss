@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+echo 'LISTEN 0 100 127.0.0.1:8005 0.0.0.0:* users:(("java",pid=123,fd=45))'

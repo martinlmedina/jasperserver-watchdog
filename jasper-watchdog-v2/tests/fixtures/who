@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+echo "opc pts/0 2026-07-05 10:00"

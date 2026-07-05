@@ -12,6 +12,7 @@ tar -czf ../jasper-watchdog-v2.tar.gz \
   logrotate-jasper-watchdog \
   postgres-watchdog-role.sql \
   tmpfiles-jasper-watchdog.conf \
-  README.md
+  README.md \
+  tests
 
 echo "Built ../jasper-watchdog-v2.tar.gz"

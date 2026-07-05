@@ -13,6 +13,7 @@ The evidence is captured **before the restart** and stays inside the same incide
     service_*.txt
     log_tail_*.txt
     jvm_thread_dump.txt
+    cron_and_sessions.txt
     pg_*.txt
     restart_command.txt
     recovery_checks.log

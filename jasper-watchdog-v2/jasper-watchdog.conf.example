@@ -24,6 +24,11 @@ INCIDENT_ROOT="/var/log/jasper-watchdog/incidents"
 GLOBAL_LOG="/var/log/jasper-watchdog/watchdog.log"
 JASPER_LOG_DIR="/opt/jasperreports-server-cp-7.1.0/apache-tomcat/logs"
 
+# Tomcat's shutdown port, used to capture who is listening on it as part of
+# the pre-restart evidence (helps confirm whether a shutdown was triggered
+# locally, e.g. by a cron job).
+TOMCAT_SHUTDOWN_PORT=8005
+
 # Timing. The systemd timer runs this monitor every 15 seconds.
 HEALTH_CONNECT_TIMEOUT_SEC=3
 HEALTH_MAX_TIME_SEC=10

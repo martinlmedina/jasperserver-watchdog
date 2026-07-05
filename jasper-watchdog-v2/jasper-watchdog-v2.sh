@@ -209,6 +209,34 @@ capture_thread_dump() {
   fi
 }
 
+capture_cron_and_sessions() {
+  mark "phase=pre_restart_capture component=cron_and_sessions"
+  capture cron_and_sessions.txt bash -c '
+    echo "== crontab -l (root) =="
+    crontab -l -u root 2>&1 || echo "no crontab for root"
+    echo
+    echo "== other user crontabs (/var/spool/cron) =="
+    if [[ -d /var/spool/cron ]]; then
+      for spool_file in /var/spool/cron/crontabs/* /var/spool/cron/*; do
+        [[ -f "$spool_file" ]] || continue
+        echo "--- $spool_file ---"
+        cat "$spool_file" 2>&1
+      done
+    else
+      echo "/var/spool/cron not found"
+    fi
+    echo
+    echo "== listening sockets on shutdown-related ports =="
+    ss -tlnp 2>&1 | grep -E ":(${TOMCAT_SHUTDOWN_PORT})\b" || echo "no listener found on port ${TOMCAT_SHUTDOWN_PORT}"
+    echo
+    echo "== last 20 logins =="
+    last -n 20 2>&1 || echo "last command unavailable"
+    echo
+    echo "== who is currently logged in =="
+    who 2>&1 || echo "who command unavailable"
+  '
+}
+
 capture_postgres_snapshot() {
   mark "phase=pre_restart_capture component=postgresql"
 
@@ -319,6 +347,7 @@ capture_pre_restart() {
   capture_system_snapshot
   capture_jasper_logs
   capture_thread_dump
+  capture_cron_and_sessions
   capture_postgres_snapshot
   mark "phase=pre_restart_capture result=completed"
 }
@@ -416,6 +445,7 @@ main() {
   ALERT_COMMAND="${ALERT_COMMAND:-}"
   HEALTH_BODY_MARKER="${HEALTH_BODY_MARKER:-}"
   SLOW_RESPONSE_THRESHOLD_SEC="${SLOW_RESPONSE_THRESHOLD_SEC:-}"
+  TOMCAT_SHUTDOWN_PORT="${TOMCAT_SHUTDOWN_PORT:-8005}"
 
   mkdir -p "$INCIDENT_ROOT" "$(dirname "$GLOBAL_LOG")" /run/lock
   chmod 0700 "$INCIDENT_ROOT"
