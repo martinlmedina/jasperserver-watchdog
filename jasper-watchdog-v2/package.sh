@@ -6,6 +6,8 @@ cd "$(dirname "$0")"
 
 tar -czf ../jasper-watchdog-v2.tar.gz \
   jasper-watchdog-v2.sh \
+  install.sh \
+  uninstall.sh \
   jasper-watchdog.conf.example \
   jasper-watchdog.service \
   jasper-watchdog.timer \
