@@ -50,26 +50,43 @@ For PostgreSQL 9.6 or older, do not make the watchdog a superuser. `pg_monitor` 
 
 ## 3. Install
 
-Copy files to the target server and install them:
+### 3.1 Get the files
+
+Option 1 — git (recommended, when the server can reach GitHub):
 
 ```bash
-sudo install -d -m 0750 -o root -g root /etc/jasper-watchdog
-sudo install -d -m 0700 -o root -g root /var/log/jasper-watchdog/incidents
-
-sudo install -m 0700 -o root -g root jasper-watchdog-v2.sh /usr/local/sbin/jasper-watchdog-v2
-sudo install -m 0600 -o root -g root jasper-watchdog.conf.example /etc/jasper-watchdog/jasper-watchdog.conf
-sudo install -m 0644 -o root -g root jasper-watchdog.service /etc/systemd/system/jasper-watchdog.service
-sudo install -m 0644 -o root -g root jasper-watchdog.timer /etc/systemd/system/jasper-watchdog.timer
-sudo install -m 0644 -o root -g root logrotate-jasper-watchdog /etc/logrotate.d/jasper-watchdog
-sudo install -m 0644 -o root -g root tmpfiles-jasper-watchdog.conf /etc/tmpfiles.d/jasper-watchdog.conf
+sudo git clone https://github.com/martinlmedina/jasperserver-watchdog.git /opt/jasper-watchdog
+sudo git -C /opt/jasper-watchdog checkout v2.0.0
+cd /opt/jasper-watchdog/jasper-watchdog-v2
 ```
 
-To produce a distributable tarball of this directory for copying to the target
-server, run `./package.sh` from inside `jasper-watchdog-v2/`.
+Option 2 — air-gapped: on any machine with the repo, run `./package.sh` to build
+`jasper-watchdog-v2.tar.gz`, copy it to the server, extract it, and `cd` into it:
 
-Edit `/etc/jasper-watchdog/jasper-watchdog.conf` and validate these values against the server:
+```bash
+scp jasper-watchdog-v2.tar.gz root@server:/root/
+ssh root@server 'tar -xzf /root/jasper-watchdog-v2.tar.gz -C /root/'
+cd /root/jasper-watchdog-v2
+```
 
-- `HEALTH_URL`: a JasperServer endpoint that proves the application is alive. Do not leave a mere port check as the only health condition. Optionally set `HEALTH_BODY_MARKER` to a string that must appear in the response body, and `SLOW_RESPONSE_THRESHOLD_SEC` to treat a slow-but-200 response as a failure. Both are unset by default, matching the previous status-code-only behavior.
+### 3.2 Run the installer
+
+```bash
+sudo ./install.sh
+```
+
+The installer is idempotent. It places the binary, systemd units, logrotate and
+tmpfiles configuration into their system paths, creates the config from the
+example only if it does not already exist, never touches `pgpass`, reloads
+systemd, and prints a configuration checklist. It does **not** enable the timer —
+that is the explicit go-live step in 3.4.
+
+### 3.3 Configure
+
+Edit `/etc/jasper-watchdog/jasper-watchdog.conf` and validate these values
+against the server:
+
+- `HEALTH_URL`: a JasperServer endpoint that proves the application is alive. Do not leave a mere port check as the only health condition. Optionally set `HEALTH_BODY_MARKER` to a string that must appear in the response body, and `SLOW_RESPONSE_THRESHOLD_SEC` to treat a slow-but-200 response as a failure. Both are unset by default.
 - `JASPER_SERVICE`: the actual systemd service name.
 - `JASPER_LOG_DIR`: the Tomcat/Jasper logs directory.
 
@@ -83,16 +100,32 @@ sudo chmod 0600 /etc/jasper-watchdog/pgpass
 sudo chown root:root /etc/jasper-watchdog/pgpass
 ```
 
-Enable the timer:
+### 3.4 Enable the timer
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemd-tmpfiles --create /etc/tmpfiles.d/jasper-watchdog.conf
 sudo systemctl enable --now jasper-watchdog.timer
 systemctl list-timers jasper-watchdog.timer
 ```
 
 A systemd `.timer` unit activates the accompanying `.service` according to the configured timing schedule; the service performs a single monitor execution.
+
+### 3.5 Updating
+
+```bash
+sudo git -C /opt/jasper-watchdog fetch --tags
+sudo git -C /opt/jasper-watchdog checkout v2.1.0     # the tag you are moving to
+sudo /opt/jasper-watchdog/jasper-watchdog-v2/install.sh
+```
+
+Your `jasper-watchdog.conf` and incident evidence are preserved. The timer stays
+enabled and runs the new binary on its next tick — no restart needed.
+
+### 3.6 Uninstall
+
+```bash
+sudo /opt/jasper-watchdog/jasper-watchdog-v2/uninstall.sh          # keeps config + incidents
+sudo /opt/jasper-watchdog/jasper-watchdog-v2/uninstall.sh --purge  # also removes them
+```
 
 ## 4. What PostgreSQL evidence is captured
 
@@ -111,7 +144,7 @@ The monitor uses short connection, statement, and lock timeouts, so an unhealthy
 ## 5. Validation before production
 
 ```bash
-sudo bash -n /usr/local/sbin/jasper-watchdog-v2
+sudo bash -n install.sh uninstall.sh /usr/local/sbin/jasper-watchdog-v2
 sudo CONFIG_FILE=/etc/jasper-watchdog/jasper-watchdog.conf /usr/local/sbin/jasper-watchdog-v2
 sudo systemctl status jasper-watchdog.timer --no-pager
 sudo tail -f /var/log/jasper-watchdog/watchdog.log
