@@ -5,58 +5,6 @@
 set -uo pipefail
 umask 077
 
-CONFIG_FILE="${CONFIG_FILE:-/etc/jasper-watchdog/jasper-watchdog.conf}"
-
-if [[ ! -r "$CONFIG_FILE" ]]; then
-  echo "ERROR: configuration file not found or not readable: $CONFIG_FILE" >&2
-  exit 2
-fi
-# shellcheck disable=SC1090
-source "$CONFIG_FILE"
-
-: "${HEALTH_URL:?HEALTH_URL is required}"
-: "${JASPER_SERVICE:?JASPER_SERVICE is required}"
-: "${INCIDENT_ROOT:?INCIDENT_ROOT is required}"
-: "${GLOBAL_LOG:?GLOBAL_LOG is required}"
-: "${PGHOST:?PGHOST is required}"
-: "${PGPORT:?PGPORT is required}"
-: "${PGDATABASE:?PGDATABASE is required}"
-: "${PGUSER:?PGUSER is required}"
-: "${PGPASSFILE:?PGPASSFILE is required}"
-
-EXPECTED_HTTP_CODES="${EXPECTED_HTTP_CODES:-200}"
-HEALTH_CONNECT_TIMEOUT_SEC="${HEALTH_CONNECT_TIMEOUT_SEC:-3}"
-HEALTH_MAX_TIME_SEC="${HEALTH_MAX_TIME_SEC:-10}"
-CONFIRM_DELAY_SEC="${CONFIRM_DELAY_SEC:-5}"
-CAPTURE_TIMEOUT_SEC="${CAPTURE_TIMEOUT_SEC:-8}"
-PG_CONNECT_TIMEOUT_SEC="${PG_CONNECT_TIMEOUT_SEC:-3}"
-PG_STATEMENT_TIMEOUT_MS="${PG_STATEMENT_TIMEOUT_MS:-3500}"
-PG_LOCK_TIMEOUT_MS="${PG_LOCK_TIMEOUT_MS:-800}"
-RECOVERY_TIMEOUT_SEC="${RECOVERY_TIMEOUT_SEC:-180}"
-RECOVERY_RETRY_SEC="${RECOVERY_RETRY_SEC:-3}"
-TAIL_LINES="${TAIL_LINES:-1200}"
-JASPER_LOG_DIR="${JASPER_LOG_DIR:-/opt/jasperreports-server-cp-7.1.0/apache-tomcat/logs}"
-
-mkdir -p "$INCIDENT_ROOT" "$(dirname "$GLOBAL_LOG")" /run/lock
-chmod 0700 "$INCIDENT_ROOT"
-touch "$GLOBAL_LOG"
-chmod 0640 "$GLOBAL_LOG"
-
-# One monitor execution at a time. This also protects against a manual run while
-# the systemd timer is active.
-exec 9>/run/lock/jasper-watchdog.lock
-if ! flock -n 9; then
-  exit 0
-fi
-
-INCIDENT=""
-INCIDENT_ID=""
-INCIDENT_STATUS=""
-FIRST_PROBE=""
-CONFIRM_PROBE=""
-RESTART_RC=""
-RECOVERY_PROBE=""
-
 now_utc() { date -u +'%Y-%m-%dT%H:%M:%SZ'; }
 
 write_global() {
@@ -361,33 +309,91 @@ write_summary() {
   chmod 0600 "$INCIDENT/README.md"
 }
 
-# First check. A single miss does not restart the service.
-if health_probe; then
-  exit 0
-fi
-FIRST_PROBE="$PROBE_RESULT"
-write_global "event=health_probe_failed phase=first probe=$FIRST_PROBE"
+main() {
+  CONFIG_FILE="${CONFIG_FILE:-/etc/jasper-watchdog/jasper-watchdog.conf}"
 
-sleep "$CONFIRM_DELAY_SEC"
-if health_probe; then
-  write_global "event=health_probe_recovered_without_restart first_probe=$FIRST_PROBE confirmation_probe=$PROBE_RESULT"
-  exit 0
-fi
-CONFIRM_PROBE="$PROBE_RESULT"
+  if [[ ! -r "$CONFIG_FILE" ]]; then
+    echo "ERROR: configuration file not found or not readable: $CONFIG_FILE" >&2
+    exit 2
+  fi
+  # shellcheck disable=SC1090
+  source "$CONFIG_FILE"
 
-create_incident
-INCIDENT_STATUS="CAPTURING"
-capture_pre_restart
-restart_service
+  : "${HEALTH_URL:?HEALTH_URL is required}"
+  : "${JASPER_SERVICE:?JASPER_SERVICE is required}"
+  : "${INCIDENT_ROOT:?INCIDENT_ROOT is required}"
+  : "${GLOBAL_LOG:?GLOBAL_LOG is required}"
+  : "${PGHOST:?PGHOST is required}"
+  : "${PGPORT:?PGPORT is required}"
+  : "${PGDATABASE:?PGDATABASE is required}"
+  : "${PGUSER:?PGUSER is required}"
+  : "${PGPASSFILE:?PGPASSFILE is required}"
 
-if wait_for_recovery; then
-  INCIDENT_STATUS="RECOVERED"
+  EXPECTED_HTTP_CODES="${EXPECTED_HTTP_CODES:-200}"
+  HEALTH_CONNECT_TIMEOUT_SEC="${HEALTH_CONNECT_TIMEOUT_SEC:-3}"
+  HEALTH_MAX_TIME_SEC="${HEALTH_MAX_TIME_SEC:-10}"
+  CONFIRM_DELAY_SEC="${CONFIRM_DELAY_SEC:-5}"
+  CAPTURE_TIMEOUT_SEC="${CAPTURE_TIMEOUT_SEC:-8}"
+  PG_CONNECT_TIMEOUT_SEC="${PG_CONNECT_TIMEOUT_SEC:-3}"
+  PG_STATEMENT_TIMEOUT_MS="${PG_STATEMENT_TIMEOUT_MS:-3500}"
+  PG_LOCK_TIMEOUT_MS="${PG_LOCK_TIMEOUT_MS:-800}"
+  RECOVERY_TIMEOUT_SEC="${RECOVERY_TIMEOUT_SEC:-180}"
+  RECOVERY_RETRY_SEC="${RECOVERY_RETRY_SEC:-3}"
+  TAIL_LINES="${TAIL_LINES:-1200}"
+  JASPER_LOG_DIR="${JASPER_LOG_DIR:-/opt/jasperreports-server-cp-7.1.0/apache-tomcat/logs}"
+
+  mkdir -p "$INCIDENT_ROOT" "$(dirname "$GLOBAL_LOG")" /run/lock
+  chmod 0700 "$INCIDENT_ROOT"
+  touch "$GLOBAL_LOG"
+  chmod 0640 "$GLOBAL_LOG"
+
+  # One monitor execution at a time. This also protects against a manual run while
+  # the systemd timer is active.
+  exec 9>/run/lock/jasper-watchdog.lock
+  if ! flock -n 9; then
+    exit 0
+  fi
+
+  INCIDENT=""
+  INCIDENT_ID=""
+  INCIDENT_STATUS=""
+  FIRST_PROBE=""
+  CONFIRM_PROBE=""
+  RESTART_RC=""
+  RECOVERY_PROBE=""
+
+  # First check. A single miss does not restart the service.
+  if health_probe; then
+    exit 0
+  fi
+  FIRST_PROBE="$PROBE_RESULT"
+  write_global "event=health_probe_failed phase=first probe=$FIRST_PROBE"
+
+  sleep "$CONFIRM_DELAY_SEC"
+  if health_probe; then
+    write_global "event=health_probe_recovered_without_restart first_probe=$FIRST_PROBE confirmation_probe=$PROBE_RESULT"
+    exit 0
+  fi
+  CONFIRM_PROBE="$PROBE_RESULT"
+
+  create_incident
+  INCIDENT_STATUS="CAPTURING"
+  capture_pre_restart
+  restart_service
+
+  if wait_for_recovery; then
+    INCIDENT_STATUS="RECOVERED"
+    write_summary "$INCIDENT_STATUS"
+    mark "incident_status=$INCIDENT_STATUS"
+    exit 0
+  fi
+
+  INCIDENT_STATUS="NOT_RECOVERED"
   write_summary "$INCIDENT_STATUS"
   mark "incident_status=$INCIDENT_STATUS"
-  exit 0
-fi
+  exit 1
+}
 
-INCIDENT_STATUS="NOT_RECOVERED"
-write_summary "$INCIDENT_STATUS"
-mark "incident_status=$INCIDENT_STATUS"
-exit 1
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  main "$@"
+fi
