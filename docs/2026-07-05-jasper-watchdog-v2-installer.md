@@ -1,7 +1,5 @@
 # JasperServer Watchdog v2 Installer Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Replace the manual six-command install with an idempotent `install.sh` + `uninstall.sh`, delivered over a pinned git tag (tarball fallback), and leave the public repo minimal (no v1, no process scaffolding).
 
 **Architecture:** Two bash scripts placed next to `package.sh`. `install.sh` copies managed artifacts into system paths, preserves existing config, prints a state-aware config checklist, and never enables the timer (explicit operator step). `uninstall.sh` reverses it, preserving config/evidence unless `--purge`. Both work from a git checkout or extracted tarball and support a `DESTDIR` prefix for root-free staged testing. A repository cleanup pass and a `v2.0.0` tag close it out.
@@ -16,7 +14,7 @@
 - Require root when installing for real; when `DESTDIR` is set, skip ownership changes and allow non-root (staged/test install).
 - Managed artifact modes are exact: binary `0700`, systemd units `0644`, logrotate `0644`, tmpfiles `0644`, config `0600`; dirs `/etc/jasper-watchdog` `0750`, incidents `0700`.
 - Cleanup is forward-only (`git rm` + commit); history is NOT rewritten.
-- The repo is public: no `jasper-watchdog-v1/`, no `superpowers` path or references in tracked files, no tracked tooling config.
+- The repo is public: no `jasper-watchdog-v1/`, no process-scaffolding path or references in tracked files, no tracked tooling config.
 - The `v2.0.0` tag is created LAST, after the tree is clean.
 - Repo: `martinlmedina/jasperserver-watchdog`, branch `main`, remote `origin`.
 
@@ -532,12 +530,12 @@ git commit -m "docs: rewrite install flow around install.sh and git delivery"
 
 **Files:**
 - Delete: `jasper-watchdog-v1/Watchdog_JasperServer_INTDB4_Guia_Tecnica.md` (and the now-empty directory)
-- Move: `docs/superpowers/specs/2026-07-05-jasper-watchdog-v2-hardening-design.md` → `docs/2026-07-05-jasper-watchdog-v2-hardening-design.md`
-- Move: `docs/superpowers/specs/2026-07-05-jasper-watchdog-v2-installer-design.md` → `docs/2026-07-05-jasper-watchdog-v2-installer-design.md`
-- Move: `docs/superpowers/plans/2026-07-05-jasper-watchdog-v2-hardening.md` → `docs/2026-07-05-jasper-watchdog-v2-hardening.md`
+- Move: `docs/<scaffold>/specs/2026-07-05-jasper-watchdog-v2-hardening-design.md` → `docs/2026-07-05-jasper-watchdog-v2-hardening-design.md`
+- Move: `docs/<scaffold>/specs/2026-07-05-jasper-watchdog-v2-installer-design.md` → `docs/2026-07-05-jasper-watchdog-v2-installer-design.md`
+- Move: `docs/<scaffold>/plans/2026-07-05-jasper-watchdog-v2-hardening.md` → `docs/2026-07-05-jasper-watchdog-v2-hardening.md`
 - Modify: `.gitignore`
 - Untrack: `.claude/settings.json`
-- Modify (scrub superpowers references): the relocated docs and this plan file
+- Modify (scrub process-scaffolding references): the relocated docs and this plan file
 
 **Interfaces:**
 - Consumes: nothing from other tasks.
@@ -549,27 +547,26 @@ git commit -m "docs: rewrite install flow around install.sh and git delivery"
 git rm -r jasper-watchdog-v1
 ```
 
-- [ ] **Step 2: Relocate the design docs out of the `superpowers` path**
+- [ ] **Step 2: Relocate the design docs out of the nested process-scaffolding path**
 
 ```bash
-git mv docs/superpowers/specs/2026-07-05-jasper-watchdog-v2-hardening-design.md docs/2026-07-05-jasper-watchdog-v2-hardening-design.md
-git mv docs/superpowers/specs/2026-07-05-jasper-watchdog-v2-installer-design.md docs/2026-07-05-jasper-watchdog-v2-installer-design.md
-git mv docs/superpowers/plans/2026-07-05-jasper-watchdog-v2-hardening.md docs/2026-07-05-jasper-watchdog-v2-hardening.md
+git mv "docs/<scaffold>/specs/2026-07-05-jasper-watchdog-v2-hardening-design.md" docs/2026-07-05-jasper-watchdog-v2-hardening-design.md
+git mv "docs/<scaffold>/specs/2026-07-05-jasper-watchdog-v2-installer-design.md" docs/2026-07-05-jasper-watchdog-v2-installer-design.md
+git mv "docs/<scaffold>/plans/2026-07-05-jasper-watchdog-v2-hardening.md" docs/2026-07-05-jasper-watchdog-v2-hardening.md
 ```
 
-The now-empty `docs/superpowers/specs` and `docs/superpowers/plans` directories are removed automatically by git when their last tracked file moves.
+The now-empty nested spec/plan directories are removed automatically by git when their last tracked file moves.
 
-- [ ] **Step 3: Scrub `superpowers` references from tracked markdown**
+- [ ] **Step 3: Scrub process-scaffolding references from tracked markdown**
 
-Find remaining references:
+Find remaining references (adjust the pattern to whatever the tooling's name was):
 ```bash
-grep -rl superpowers docs README.md jasper-watchdog-v2/README.md
+grep -rl "<scaffold>" docs README.md jasper-watchdog-v2/README.md
 ```
 
-For each hit, remove the reference. The known pattern is the plan header line:
-`> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:...` — delete that entire blockquote line from `docs/2026-07-05-jasper-watchdog-v2-hardening.md` and `docs/2026-07-05-jasper-watchdog-v2-installer.md`. Re-run the grep and confirm it returns nothing:
+For each hit, remove the reference. The known pattern is the plan header line referencing the sub-skill tooling used to implement plans — delete that entire blockquote line from `docs/2026-07-05-jasper-watchdog-v2-hardening.md` and `docs/2026-07-05-jasper-watchdog-v2-installer.md`. Re-run the grep and confirm it returns nothing:
 ```bash
-grep -rl superpowers docs README.md jasper-watchdog-v2/README.md ; echo "exit=$?"
+grep -rl "<scaffold>" docs README.md jasper-watchdog-v2/README.md ; echo "exit=$?"
 ```
 Expected: no file paths printed (grep exit 1).
 
@@ -583,13 +580,13 @@ Replace `.gitignore` contents with:
 ```gitignore
 *.tar.gz
 .claude/
-.superpowers/
+.<scaffold>/
 ```
 
 - [ ] **Step 5: Verify the tree is clean**
 
-Run: `git ls-files | grep -E 'jasper-watchdog-v1|superpowers|\.claude'`
-Expected: no output (nothing tracked under v1, no superpowers path, no tracked `.claude`).
+Run: `git ls-files | grep -E 'jasper-watchdog-v1|<scaffold>|\.claude'`
+Expected: no output (nothing tracked under v1, no process-scaffolding path, no tracked `.claude`).
 
 - [ ] **Step 6: Commit**
 
@@ -646,7 +643,7 @@ Expected: `refs/tags/v2.0.0` is listed.
 - README rewrite (git delivery + tarball fallback + updating + uninstall) → Task 3. ✓
 - Root README pointer → Task 3, Step 3. ✓
 - Remove v1 → Task 4, Step 1. ✓
-- Relocate docs out of superpowers/ → Task 4, Step 2. ✓
+- Relocate docs out of nested process-scaffolding path → Task 4, Step 2. ✓
 - Untrack tooling config → Task 4, Step 4. ✓
 - Tag v2.0.0 after cleanup → Task 5. ✓
 

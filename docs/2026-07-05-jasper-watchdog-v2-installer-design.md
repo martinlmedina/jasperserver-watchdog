@@ -154,15 +154,14 @@ tag so the tag points at the clean tree.
   incident root cause (a 13:00 cron job sending a shutdown to Tomcat's shutdown
   port) — is already embodied in v2's cron/session evidence capture, so no
   knowledge is lost from the product itself.
-- **Drop the `superpowers` path**: relocate the three design docs from
-  `docs/superpowers/{specs,plans}/` to a flat `docs/` directory (this installer
-  spec, the hardening design spec, and the hardening plan), and remove the now
-  empty `docs/superpowers/` tree. The installer plan produced next also goes in
-  `docs/`.
+- **Drop the process-scaffolding path**: relocate the three design docs to a
+  flat `docs/` directory (this installer spec, the hardening design spec, and
+  the hardening plan), and remove the now empty nested tree they came from.
+  The installer plan produced next also goes in `docs/`.
 - **Untrack tooling config**: `git rm --cached .claude/settings.json` and ignore
   `.claude/` in `.gitignore` (consistent with the already-ignored
-  `settings.local.json`). Also add the untracked local `.superpowers/` directory
-  to `.gitignore` so process scaffolding can never be committed.
+  `settings.local.json`). Also add the untracked local process-scaffolding
+  directory to `.gitignore` so it can never be committed.
 - **Duplicates**: none remain beyond the root README addressed above (confirmed
   via `git ls-files`; the root-level duplicate script/tarball were removed in an
   earlier commit).

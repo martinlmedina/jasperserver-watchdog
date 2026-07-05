@@ -1,7 +1,5 @@
 # JasperServer Watchdog v2 Hardening — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Harden `jasper-watchdog-v2` with a restart circuit breaker, content/latency health validation, an extensible alert hook, cron/session evidence capture, and a bats-core test suite, while cleaning up repository hygiene — turning v2 into the single canonical, tested watchdog implementation.
 
 **Architecture:** All behavior changes live in the single script `jasper-watchdog-v2/jasper-watchdog-v2.sh`. It is first refactored so its sequential entry-point logic lives in a `main()` function guarded by `if [[ "${BASH_SOURCE[0]}" == "${0}" ]]`, which lets bats tests `source` the file and call individual functions without triggering a real run (no config file, curl, psql, or systemctl required). Each subsequent task adds one function plus its config variables, wires it into `main()`, and adds bats tests using PATH-shadowing fixture scripts to stub `curl`, `crontab`, `ss`, `last`, and `who`.
@@ -10,7 +8,7 @@
 
 ## Global Constraints
 
-- Spec: `docs/superpowers/specs/2026-07-05-jasper-watchdog-v2-hardening-design.md`.
+- Spec: `docs/2026-07-05-jasper-watchdog-v2-hardening-design.md`.
 - `v1` (`jasper-watchdog-v1/`) is not modified — it remains frozen as historical documentation.
 - Circuit breaker defaults match v1 exactly: `MAX_AUTORESTARTS=3`, `RESTART_WINDOW_SEC=900`.
 - `HEALTH_BODY_MARKER` and `SLOW_RESPONSE_THRESHOLD_SEC` default to unset/empty — when unset, `health_probe()` behaves exactly as it does today (HTTP status code only). This is required for backward compatibility with existing deployments.
