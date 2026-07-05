@@ -1073,16 +1073,16 @@ EOF
 - Modify: `jasper-watchdog-v2/jasper-watchdog-v2.sh`
 - Modify: `jasper-watchdog-v2/jasper-watchdog.conf.example`
 - Modify: `jasper-watchdog-v2/README.md`
-- Create: `jasper-watchdog-v2/tests/fixtures/fake-curl`
+- Create: `jasper-watchdog-v2/tests/fixtures/curl`
 - Create: `jasper-watchdog-v2/tests/test_health_probe.bats`
 
 **Interfaces:**
 - Consumes: `expected_http_code()` and the `PROBE_RESULT` global convention from Task 2.
 - Produces: a modified `health_probe()` supporting optional `HEALTH_BODY_MARKER` and `SLOW_RESPONSE_THRESHOLD_SEC`; a new `float_gt()` helper.
 
-- [ ] **Step 1: Create the `fake-curl` fixture**
+- [ ] **Step 1: Create the `curl` fixture**
 
-Create `jasper-watchdog-v2/tests/fixtures/fake-curl`:
+Create `jasper-watchdog-v2/tests/fixtures/curl`:
 
 ```bash
 #!/usr/bin/env bash
@@ -1106,7 +1106,7 @@ exit "${FAKE_CURL_RC:-0}"
 Make it executable:
 
 ```bash
-chmod +x jasper-watchdog-v2/tests/fixtures/fake-curl
+chmod +x jasper-watchdog-v2/tests/fixtures/curl
 ```
 
 - [ ] **Step 2: Write the failing tests**
@@ -1298,7 +1298,7 @@ Replace with:
 - [ ] **Step 10: Commit**
 
 ```bash
-git add jasper-watchdog-v2/jasper-watchdog-v2.sh jasper-watchdog-v2/jasper-watchdog.conf.example jasper-watchdog-v2/README.md jasper-watchdog-v2/tests/test_health_probe.bats jasper-watchdog-v2/tests/fixtures/fake-curl
+git add jasper-watchdog-v2/jasper-watchdog-v2.sh jasper-watchdog-v2/jasper-watchdog.conf.example jasper-watchdog-v2/README.md jasper-watchdog-v2/tests/test_health_probe.bats jasper-watchdog-v2/tests/fixtures/curl
 git commit -m "$(cat <<'EOF'
 feat: validate response content and latency in health_probe
 
