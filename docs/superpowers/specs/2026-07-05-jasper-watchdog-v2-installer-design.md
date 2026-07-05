@@ -116,8 +116,9 @@ Runs as root. Behavior:
 
 ### Release tag `v2.0.0`
 
-Create an annotated tag `v2.0.0` on the current `main` (all hardening is merged)
-and push it, so the installer has a pinned version to check out.
+Create an annotated tag `v2.0.0` and push it, so the installer has a pinned
+version to check out. **The tag is created after the repository cleanup below**,
+so it points at a clean tree (no v1, no process scaffolding).
 
 ### README rewrite (`jasper-watchdog-v2/README.md`)
 
@@ -139,8 +140,32 @@ Replace section 3 "Install" with:
 The repository-root `README.md` is a stale, diverged copy of the v2 README
 (missing the circuit breaker, cron/session capture, and `HEALTH_BODY_MARKER`
 sections). Replace it with a short pointer to `jasper-watchdog-v2/` and a
-one-line description of v1 vs v2, to remove the risk of an outdated duplicate.
-(Included by default; can be dropped at spec review.)
+one-line description of the project. It no longer references v1 (removed below).
+
+## Repository cleanup
+
+The repository is public; the goal is the smallest, cleanest tree possible with
+no process scaffolding or dead versions. Cleanup is done **forward-only** (`git
+rm` + commit) — history is not rewritten. All of it lands before the `v2.0.0`
+tag so the tag points at the clean tree.
+
+- **Remove v1**: delete `jasper-watchdog-v1/` (a Spanish operational runbook).
+  It remains recoverable from git history. Its one durable insight — the real
+  incident root cause (a 13:00 cron job sending a shutdown to Tomcat's shutdown
+  port) — is already embodied in v2's cron/session evidence capture, so no
+  knowledge is lost from the product itself.
+- **Drop the `superpowers` path**: relocate the three design docs from
+  `docs/superpowers/{specs,plans}/` to a flat `docs/` directory (this installer
+  spec, the hardening design spec, and the hardening plan), and remove the now
+  empty `docs/superpowers/` tree. The installer plan produced next also goes in
+  `docs/`.
+- **Untrack tooling config**: `git rm --cached .claude/settings.json` and ignore
+  `.claude/` in `.gitignore` (consistent with the already-ignored
+  `settings.local.json`). Also add the untracked local `.superpowers/` directory
+  to `.gitignore` so process scaffolding can never be committed.
+- **Duplicates**: none remain beyond the root README addressed above (confirmed
+  via `git ls-files`; the root-level duplicate script/tarball were removed in an
+  earlier commit).
 
 ## Testing
 
