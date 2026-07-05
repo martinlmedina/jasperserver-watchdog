@@ -37,7 +37,7 @@ health_probe() {
     body_file="$(mktemp)"
   fi
 
-  output="$(curl --noproxy '*' --location --silent --show-error \
+  output="$(LC_ALL=C curl --noproxy '*' --location --silent --show-error \
       --output "$body_file" \
       --write-out 'http_code=%{http_code} time_total=%{time_total} err=%{errormsg}' \
       --connect-timeout "$HEALTH_CONNECT_TIMEOUT_SEC" \
