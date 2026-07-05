@@ -25,19 +25,50 @@ expected_http_code() {
   [[ " $EXPECTED_HTTP_CODES " == *" $code "* ]]
 }
 
+float_gt() {
+  awk -v a="$1" -v b="$2" 'BEGIN { exit !(a > b) }'
+}
+
 health_probe() {
-  local output rc code
+  local output rc code time_total body_file marker_found
+
+  body_file="/dev/null"
+  if [[ -n "${HEALTH_BODY_MARKER:-}" ]]; then
+    body_file="$(mktemp)"
+  fi
+
   output="$(curl --noproxy '*' --location --silent --show-error \
-      --output /dev/null \
+      --output "$body_file" \
       --write-out 'http_code=%{http_code} time_total=%{time_total} err=%{errormsg}' \
       --connect-timeout "$HEALTH_CONNECT_TIMEOUT_SEC" \
       --max-time "$HEALTH_MAX_TIME_SEC" \
       "$HEALTH_URL" 2>&1)"
   rc=$?
   code="$(sed -n 's/.*http_code=\([0-9][0-9][0-9]\).*/\1/p' <<< "$output" | tail -n1)"
+  time_total="$(sed -n 's/.*time_total=\([0-9.]*\).*/\1/p' <<< "$output" | tail -n1)"
   PROBE_RESULT="curl_rc=${rc}; ${output}"
 
-  [[ "$rc" -eq 0 && -n "$code" ]] && expected_http_code "$code"
+  if [[ "$rc" -ne 0 || -z "$code" ]] || ! expected_http_code "$code"; then
+    [[ "$body_file" != "/dev/null" ]] && rm -f "$body_file"
+    return 1
+  fi
+
+  if [[ -n "${HEALTH_BODY_MARKER:-}" ]]; then
+    marker_found=0
+    grep -Fq -- "$HEALTH_BODY_MARKER" "$body_file" && marker_found=1
+    rm -f "$body_file"
+    if [[ "$marker_found" -ne 1 ]]; then
+      PROBE_RESULT="${PROBE_RESULT}; body_marker_missing=${HEALTH_BODY_MARKER}"
+      return 1
+    fi
+  fi
+
+  if [[ -n "${SLOW_RESPONSE_THRESHOLD_SEC:-}" && -n "$time_total" ]] && float_gt "$time_total" "$SLOW_RESPONSE_THRESHOLD_SEC"; then
+    PROBE_RESULT="${PROBE_RESULT}; slow_response_threshold_exceeded=${SLOW_RESPONSE_THRESHOLD_SEC}"
+    return 1
+  fi
+
+  return 0
 }
 
 create_incident() {
@@ -383,6 +414,8 @@ main() {
   RESTART_WINDOW_SEC="${RESTART_WINDOW_SEC:-900}"
   RESTART_HISTORY_FILE="${RESTART_HISTORY_FILE:-$(dirname "$GLOBAL_LOG")/restart-history.log}"
   ALERT_COMMAND="${ALERT_COMMAND:-}"
+  HEALTH_BODY_MARKER="${HEALTH_BODY_MARKER:-}"
+  SLOW_RESPONSE_THRESHOLD_SEC="${SLOW_RESPONSE_THRESHOLD_SEC:-}"
 
   mkdir -p "$INCIDENT_ROOT" "$(dirname "$GLOBAL_LOG")" /run/lock
   chmod 0700 "$INCIDENT_ROOT"

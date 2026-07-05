@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Fake curl for bats tests: emits controllable canned responses via
+# FAKE_CURL_RC, FAKE_CURL_HTTP_CODE, FAKE_CURL_TIME_TOTAL, FAKE_CURL_BODY,
+# FAKE_CURL_ERR environment variables.
+output_path=""
+args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+  if [[ "${args[$i]}" == "--output" ]]; then
+    output_path="${args[$((i + 1))]}"
+  fi
+done
+
+printf '%s' "${FAKE_CURL_BODY:-}" > "$output_path"
+printf 'http_code=%s time_total=%s err=%s' \
+  "${FAKE_CURL_HTTP_CODE:-200}" "${FAKE_CURL_TIME_TOTAL:-0.100}" "${FAKE_CURL_ERR:-}"
+exit "${FAKE_CURL_RC:-0}"

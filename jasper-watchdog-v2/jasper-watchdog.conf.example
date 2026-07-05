@@ -5,6 +5,11 @@
 # represents a working JasperServer login/application response in this server.
 HEALTH_URL="http://127.0.0.1:8080/jasperserver/login.html"
 EXPECTED_HTTP_CODES="200 302"
+
+# Optional content and latency validation. Leave both unset to keep
+# validating only the HTTP status code (previous behavior).
+# HEALTH_BODY_MARKER="MONITOR"
+# SLOW_RESPONSE_THRESHOLD_SEC=4
 JASPER_SERVICE="jasperserver"
 
 # Restart circuit breaker. Blocks further automatic restarts once the

@@ -68,7 +68,7 @@ server, run `./package.sh` from inside `jasper-watchdog-v2/`.
 
 Edit `/etc/jasper-watchdog/jasper-watchdog.conf` and validate these values against the server:
 
-- `HEALTH_URL`: a JasperServer endpoint that proves the application is alive. Do not leave a mere port check as the only health condition.
+- `HEALTH_URL`: a JasperServer endpoint that proves the application is alive. Do not leave a mere port check as the only health condition. Optionally set `HEALTH_BODY_MARKER` to a string that must appear in the response body, and `SLOW_RESPONSE_THRESHOLD_SEC` to treat a slow-but-200 response as a failure. Both are unset by default, matching the previous status-code-only behavior.
 - `JASPER_SERVICE`: the actual systemd service name.
 - `JASPER_LOG_DIR`: the Tomcat/Jasper logs directory.
 
