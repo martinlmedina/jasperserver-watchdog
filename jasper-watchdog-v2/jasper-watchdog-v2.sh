@@ -37,9 +37,13 @@ health_probe() {
   # Removed on success; left on disk on failure for the caller to use.
   PROBE_BODY_FILE="$(mktemp)"
 
+  # %{errormsg} is intentionally not used: it requires curl >= 7.75, and the
+  # target hosts (RHEL/CentOS with older curl) reject it with "unknown
+  # --write-out variable", polluting every probe result. On a real failure
+  # curl's own message is already captured via --show-error and 2>&1.
   output="$(LC_ALL=C curl --noproxy '*' --location --silent --show-error \
       --output "$PROBE_BODY_FILE" \
-      --write-out 'http_code=%{http_code} time_total=%{time_total} err=%{errormsg}' \
+      --write-out 'http_code=%{http_code} time_total=%{time_total}' \
       --connect-timeout "$HEALTH_CONNECT_TIMEOUT_SEC" \
       --max-time "$HEALTH_MAX_TIME_SEC" \
       "$HEALTH_URL" 2>&1)"
