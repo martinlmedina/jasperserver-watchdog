@@ -459,7 +459,7 @@ run_recovery() {
     return 0
   fi
 
-  if [[ "$ESCALATE_TO_FULL_RESTART" -eq 1 ]]; then
+  if [[ "$ESCALATE_TO_FULL_RESTART" == "1" ]]; then
     full_restart
     if wait_for_recovery; then
       return 0

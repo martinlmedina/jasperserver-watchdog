@@ -158,7 +158,7 @@ sudo systemctl status jasper-watchdog.timer --no-pager
 sudo tail -f /var/log/jasper-watchdog/watchdog.log
 ```
 
-To test the incident path without modifying the production service, temporarily set `HEALTH_URL` to an unused local port in a non-production window. Then verify that the incident directory includes all `pg_*.txt` files **before** the `recovery_*.txt` files.
+To test the incident path without modifying the production service, temporarily set `HEALTH_URL` to an unused local port in a non-production window. Then verify that the incident directory includes all `pg_*.txt` files **before** the `recovery_*.txt` files. This test will trigger a real `ctlscript.sh` restart sequence against the test service — do not point it at a live JasperServer instance.
 
 ## 6. Operational rule
 
