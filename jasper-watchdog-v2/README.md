@@ -66,9 +66,13 @@ Option 1 — git (recommended, when the server can reach GitHub):
 
 ```bash
 sudo git clone https://github.com/martinlmedina/jasperserver-watchdog.git /opt/jasper-watchdog
-sudo git -C /opt/jasper-watchdog checkout v2.0.0
+# Check out the latest published release tag:
+sudo git -C /opt/jasper-watchdog checkout "$(git -C /opt/jasper-watchdog describe --tags --abbrev=0)"
 cd /opt/jasper-watchdog/jasper-watchdog-v2
 ```
+
+To install a specific release instead, replace the checkout with the exact tag,
+e.g. `sudo git -C /opt/jasper-watchdog checkout v2.1.0`.
 
 Option 2 — air-gapped: on any machine with the repo, run `./package.sh` to build
 `jasper-watchdog-v2.tar.gz`, copy it to the server, extract it, and `cd` into it:
