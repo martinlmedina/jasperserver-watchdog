@@ -157,7 +157,12 @@ capture() {
   local rc
   {
     echo "# started_utc=$(now_utc)"
-    "$@"
+    # 9>&- closes the flock fd (held by main via `exec 9>`) for the captured
+    # command and everything it spawns. Without this, a daemon started by a
+    # recovery action (ctlscript start/restart -> Tomcat/Postgres) inherits fd
+    # 9 and keeps the watchdog lock held for its whole lifetime, wedging every
+    # later 15s tick at `flock -n` until that daemon is restarted.
+    "$@" 9>&-
     rc=$?
     echo "# exit_code=$rc"
     echo "# ended_utc=$(now_utc)"
