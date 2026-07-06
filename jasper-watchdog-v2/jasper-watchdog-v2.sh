@@ -383,6 +383,68 @@ diagnose() {
   mark "phase=diagnose pg_proc_up=$PG_PROC_UP pg_accepting=$PG_ACCEPTING tomcat_proc_up=$TOMCAT_PROC_UP"
 }
 
+ctl_action() {
+  local filename="$1"
+  shift
+  capture "$filename" timeout --signal=TERM --kill-after=2s "${CTL_ACTION_TIMEOUT_SEC}s" "$CTLSCRIPT" "$@"
+}
+
+wait_pg_ready() {
+  local deadline
+  deadline=$((SECONDS + PG_READY_TIMEOUT_SEC))
+
+  while (( SECONDS < deadline )); do
+    if PGCONNECT_TIMEOUT="$PG_CONNECT_TIMEOUT_SEC" "$PG_ISREADY_BIN" -h "$PGHOST" -p "$PGPORT" >/dev/null 2>&1; then
+      mark "phase=recovery component=postgresql result=pg_ready"
+      return 0
+    fi
+    sleep "$PG_READY_RETRY_SEC"
+  done
+
+  mark "phase=recovery component=postgresql result=pg_ready_timeout timeout_sec=$PG_READY_TIMEOUT_SEC"
+  return 1
+}
+
+recover_postgres() {
+  if (( PG_PROC_UP == 1 && PG_ACCEPTING == 1 )); then
+    return 0
+  fi
+
+  mark "phase=recovery component=postgresql action=start"
+  ctl_action recovery_postgres_start.txt start "$PG_COMPONENT"
+  RECOVERY_ACTIONS="${RECOVERY_ACTIONS}postgres_start "
+
+  if wait_pg_ready; then
+    PG_ACCEPTING=1
+  fi
+}
+
+recover_tomcat() {
+  if (( TOMCAT_PROC_UP == 0 )); then
+    mark "phase=recovery component=tomcat action=start"
+    ctl_action recovery_tomcat_start.txt start "$TOMCAT_COMPONENT"
+    RECOVERY_ACTIONS="${RECOVERY_ACTIONS}tomcat_start "
+  else
+    mark "phase=recovery component=tomcat action=restart"
+    ctl_action recovery_tomcat_restart.txt restart "$TOMCAT_COMPONENT"
+    RECOVERY_ACTIONS="${RECOVERY_ACTIONS}tomcat_restart "
+  fi
+}
+
+recover_components() {
+  RECOVERY_ACTIONS=""
+
+  if ! validate_recovery_tools; then
+    notify_human "recovery_failed" "JasperServer watchdog: incident $INCIDENT_ID cannot run recovery, ctlscript or pg_isready missing or not executable"
+    return 1
+  fi
+
+  diagnose
+  recover_postgres
+  recover_tomcat
+  return 0
+}
+
 wait_for_recovery() {
   local deadline now
   deadline=$((SECONDS + RECOVERY_TIMEOUT_SEC))
