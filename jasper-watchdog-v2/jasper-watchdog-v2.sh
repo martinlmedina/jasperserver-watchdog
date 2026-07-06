@@ -508,7 +508,7 @@ write_summary() {
     echo "## Evidence captured before restart"
     echo
     echo "- OS health, memory, disk, processes and sockets"
-    echo "- Jasper/Tomcat service status, journal and log tails"
+    echo "- Jasper/Tomcat service status and log tails"
     echo "- JVM thread dump when jcmd or jstack was available"
     echo "- PostgreSQL activity, waits, active transactions, blocking sessions, locks and database statistics"
     echo
