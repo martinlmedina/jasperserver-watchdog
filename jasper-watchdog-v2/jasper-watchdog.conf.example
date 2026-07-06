@@ -69,6 +69,12 @@ RECOVERY_TIMEOUT_SEC=180
 RECOVERY_RETRY_SEC=3
 TAIL_LINES=1200
 
+# When capturing Tomcat/Jasper log evidence, catalina.out is always included;
+# the dated rotated logs (catalina.YYYY-MM-DD.log, localhost.*, etc.) are only
+# captured if modified within this window, so an incident doesn't drag in
+# months of stale rotation history. In minutes; default 1440 (24 h).
+JASPER_LOG_MAX_AGE_MIN=1440
+
 # Dedicated read-only PostgreSQL monitoring account. Do not reuse jasperdb.
 PGHOST="127.0.0.1"
 PGPORT="5432"

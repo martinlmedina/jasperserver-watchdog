@@ -206,14 +206,22 @@ capture_jasper_logs() {
     return 0
   fi
 
+  # catalina.out is the primary live log; always include it. For the dated,
+  # rotated logs (catalina.YYYY-MM-DD.log, localhost.*, etc.) only include the
+  # ones modified within JASPER_LOG_MAX_AGE_MIN so an incident doesn't drag in
+  # months of stale rotation history.
   local file base
-  shopt -s nullglob
-  for file in "$JASPER_LOG_DIR"/catalina.out "$JASPER_LOG_DIR"/*.log "$JASPER_LOG_DIR"/localhost.*; do
-    [[ -f "$file" ]] || continue
+  local -a files=()
+  [[ -f "$JASPER_LOG_DIR/catalina.out" ]] && files+=("$JASPER_LOG_DIR/catalina.out")
+  while IFS= read -r file; do
+    files+=("$file")
+  done < <(find "$JASPER_LOG_DIR" -maxdepth 1 -type f \( -name '*.log' -o -name 'localhost.*' \) \
+             -mmin "-${JASPER_LOG_MAX_AGE_MIN}" 2>/dev/null | sort)
+
+  for file in "${files[@]}"; do
     base="$(basename "$file")"
     capture "log_tail_${base}.txt" tail -n "$TAIL_LINES" "$file"
   done
-  shopt -u nullglob
 }
 
 capture_thread_dump() {
@@ -582,6 +590,7 @@ main() {
   RECOVERY_RETRY_SEC="${RECOVERY_RETRY_SEC:-3}"
   TAIL_LINES="${TAIL_LINES:-1200}"
   JASPER_LOG_DIR="${JASPER_LOG_DIR:-/opt/jasperreports-server-cp-7.1.0/apache-tomcat/logs}"
+  JASPER_LOG_MAX_AGE_MIN="${JASPER_LOG_MAX_AGE_MIN:-1440}"
   MAX_AUTORESTARTS="${MAX_AUTORESTARTS:-3}"
   RESTART_WINDOW_SEC="${RESTART_WINDOW_SEC:-900}"
   RESTART_HISTORY_FILE="${RESTART_HISTORY_FILE:-$(dirname "$GLOBAL_LOG")/restart-history.log}"
