@@ -136,6 +136,24 @@ take_restart_slot() {
   return 0
 }
 
+block_capture_due() {
+  # While the circuit breaker stays tripped and the service stays down, the
+  # watchdog would otherwise build a fresh incident and a full evidence capture
+  # on every 15s tick. Capture the flapping forensics once per blocked window
+  # instead: return 0 (capture is due) only when no blocked incident was
+  # recorded within RESTART_WINDOW_SEC, stamping now() when it is; otherwise
+  # return 1 so the caller suppresses the incident/capture/alert.
+  local now last
+  now=$(date +%s)
+  last=$(cat "$BLOCK_MARKER_FILE" 2>/dev/null)
+  [[ "$last" =~ ^[0-9]+$ ]] || last=0
+  if (( now - last >= RESTART_WINDOW_SEC )); then
+    printf '%s\n' "$now" > "$BLOCK_MARKER_FILE"
+    return 0
+  fi
+  return 1
+}
+
 notify_human() {
   local event="$1"
   local message="$2"
@@ -599,6 +617,7 @@ main() {
   MAX_AUTORESTARTS="${MAX_AUTORESTARTS:-3}"
   RESTART_WINDOW_SEC="${RESTART_WINDOW_SEC:-900}"
   RESTART_HISTORY_FILE="${RESTART_HISTORY_FILE:-$(dirname "$GLOBAL_LOG")/restart-history.log}"
+  BLOCK_MARKER_FILE="${BLOCK_MARKER_FILE:-$(dirname "$GLOBAL_LOG")/circuit-breaker-blocked.marker}"
   ALERT_COMMAND="${ALERT_COMMAND:-}"
   HEALTH_BODY_MARKER="${HEALTH_BODY_MARKER:-}"
   SLOW_RESPONSE_THRESHOLD_SEC="${SLOW_RESPONSE_THRESHOLD_SEC:-}"
@@ -662,15 +681,39 @@ main() {
   CONFIRM_PROBE="$PROBE_RESULT"
   rm -f "$FIRST_PROBE_BODY_FILE"
 
-  create_incident
-  INCIDENT_STATUS="CAPTURING"
-  cp "$PROBE_BODY_FILE" "$INCIDENT/last_health_failure.html" 2>/dev/null || true
-  chmod 0600 "$INCIDENT/last_health_failure.html" 2>/dev/null || true
-  rm -f "$PROBE_BODY_FILE"
-  capture_pre_restart
+  # Decide on the circuit breaker before capturing anything. When a slot is
+  # granted we capture evidence and recover; when blocked we still capture once
+  # per window (the flapping forensics) but suppress the per-tick churn.
+  if take_restart_slot; then
+    create_incident
+    INCIDENT_STATUS="CAPTURING"
+    cp "$PROBE_BODY_FILE" "$INCIDENT/last_health_failure.html" 2>/dev/null || true
+    chmod 0600 "$INCIDENT/last_health_failure.html" 2>/dev/null || true
+    rm -f "$PROBE_BODY_FILE"
+    capture_pre_restart
 
-  if ! take_restart_slot; then
+    if run_recovery; then
+      INCIDENT_STATUS="RECOVERED"
+      write_summary "$INCIDENT_STATUS"
+      mark "incident_status=$INCIDENT_STATUS"
+      exit 0
+    fi
+
+    INCIDENT_STATUS="NOT_RECOVERED"
+    notify_human "recovery_failed" "JasperServer watchdog: incident $INCIDENT_ID recovery actions (${RECOVERY_ACTIONS:-none}) did not restore health within ${RECOVERY_TIMEOUT_SEC}s"
+    write_summary "$INCIDENT_STATUS"
+    mark "incident_status=$INCIDENT_STATUS"
+    exit 1
+  fi
+
+  # Circuit breaker tripped.
+  if block_capture_due; then
+    create_incident
     INCIDENT_STATUS="BLOCKED_CIRCUIT_BREAKER"
+    cp "$PROBE_BODY_FILE" "$INCIDENT/last_health_failure.html" 2>/dev/null || true
+    chmod 0600 "$INCIDENT/last_health_failure.html" 2>/dev/null || true
+    rm -f "$PROBE_BODY_FILE"
+    capture_pre_restart
     mark "phase=circuit_breaker result=blocked max_autorestarts=$MAX_AUTORESTARTS window_sec=$RESTART_WINDOW_SEC"
     notify_human "circuit_breaker_tripped" "JasperServer watchdog: circuit breaker blocked automatic restart for incident $INCIDENT_ID after $MAX_AUTORESTARTS restarts in ${RESTART_WINDOW_SEC}s"
     write_summary "$INCIDENT_STATUS"
@@ -678,17 +721,10 @@ main() {
     exit 1
   fi
 
-  if run_recovery; then
-    INCIDENT_STATUS="RECOVERED"
-    write_summary "$INCIDENT_STATUS"
-    mark "incident_status=$INCIDENT_STATUS"
-    exit 0
-  fi
-
-  INCIDENT_STATUS="NOT_RECOVERED"
-  notify_human "recovery_failed" "JasperServer watchdog: incident $INCIDENT_ID recovery actions (${RECOVERY_ACTIONS:-none}) did not restore health within ${RECOVERY_TIMEOUT_SEC}s"
-  write_summary "$INCIDENT_STATUS"
-  mark "incident_status=$INCIDENT_STATUS"
+  # Already captured this blocked window: log a lightweight heartbeat and exit
+  # without a new incident, capture, or alert.
+  rm -f "$PROBE_BODY_FILE"
+  write_global "event=circuit_breaker_still_blocked max_autorestarts=$MAX_AUTORESTARTS window_sec=$RESTART_WINDOW_SEC"
   exit 1
 }
 

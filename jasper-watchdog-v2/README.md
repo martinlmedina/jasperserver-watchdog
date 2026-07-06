@@ -180,12 +180,20 @@ This preserves the evidence needed to determine whether the root cause was Jaspe
 ## 7. Restart circuit breaker
 
 `MAX_AUTORESTARTS` (default 3) and `RESTART_WINDOW_SEC` (default 900) bound how many
-automatic restarts the watchdog performs inside a rolling time window. Evidence is
-always captured before this check runs. Once the limit is reached, the watchdog marks
-the incident `BLOCKED_CIRCUIT_BREAKER`, skips component-aware recovery, and requires a
-human to investigate and restart the service manually. Restart timestamps are tracked in a
-state file next to `GLOBAL_LOG` (`restart-history.log` by default, overridable via
-`RESTART_HISTORY_FILE`).
+automatic restarts the watchdog performs inside a rolling time window. Once the limit is
+reached, the watchdog marks the incident `BLOCKED_CIRCUIT_BREAKER`, skips component-aware
+recovery, and requires a human to investigate and restart the service manually. Restart
+timestamps are tracked in a state file next to `GLOBAL_LOG` (`restart-history.log` by
+default, overridable via `RESTART_HISTORY_FILE`).
+
+When the breaker is tripped **and the service stays down**, the watchdog still captures a
+full forensic incident **once per blocked window** (the flapping snapshot a human needs),
+then suppresses the per-tick churn: subsequent 15s ticks that are still blocked only append
+a lightweight `event=circuit_breaker_still_blocked` line to the log — no new incident
+directory, no re-capture, no repeated alert. A second block-episode timestamp file
+(`circuit-breaker-blocked.marker`, overridable via `BLOCK_MARKER_FILE`) tracks this. To
+resume automatic recovery, either wait for the window to elapse or clear the breaker with
+`rm -f /var/log/jasper-watchdog/restart-history.log`.
 
 ## 8. Alerting hook
 
