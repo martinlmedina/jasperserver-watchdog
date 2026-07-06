@@ -51,6 +51,15 @@ TOMCAT_SHUTDOWN_PORT=8005
 # as part of the pre-restart evidence.
 JOURNAL_LOOKBACK_MIN=10
 
+# Debug mode. When DEBUG=1, every health check writes one line to DEBUG_LOG
+# (response time, HTTP code, whether HEALTH_BODY_MARKER was found, pass/fail),
+# including the healthy ticks the watchdog is otherwise silent about. Use it
+# to watch the probe live (`tail -f` the debug log) or to see one check on a
+# manual run. Turn it OFF again when done — otherwise the file grows one line
+# every 15 seconds. Default is off.
+DEBUG=0
+# DEBUG_LOG="/var/log/jasper-watchdog/watchdog-debug.log"
+
 # Timing. The systemd timer runs this monitor every 15 seconds.
 HEALTH_CONNECT_TIMEOUT_SEC=3
 HEALTH_MAX_TIME_SEC=10

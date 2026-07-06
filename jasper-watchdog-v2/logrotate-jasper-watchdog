@@ -1,4 +1,5 @@
-/var/log/jasper-watchdog/watchdog.log {
+/var/log/jasper-watchdog/watchdog.log
+/var/log/jasper-watchdog/watchdog-debug.log {
     weekly
     rotate 12
     compress

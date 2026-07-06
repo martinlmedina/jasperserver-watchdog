@@ -29,8 +29,24 @@ float_gt() {
   awk -v a="$1" -v b="$2" 'BEGIN { exit !(a > b) }'
 }
 
+debug_probe() {
+  # Emits one human-readable line per health check to DEBUG_LOG when DEBUG=1.
+  # No-op otherwise, so the scheduled ticks stay silent unless debugging.
+  [[ "${DEBUG:-0}" == "1" ]] || return 0
+  local code="$1" time_total="$2" rc="$3" marker_state="$4" verdict="$5" reason="$6"
+  local result_str
+  if [[ "$verdict" -eq 0 ]]; then
+    result_str="OK"
+  else
+    result_str="FAIL(${reason})"
+  fi
+  printf '%s | DEBUG probe | http_code=%s time_total=%ss curl_rc=%s marker=%s found=%s result=%s\n' \
+    "$(now_utc)" "${code:-000}" "${time_total:-?}" "$rc" "${HEALTH_BODY_MARKER:-none}" "$marker_state" "$result_str" \
+    >> "$DEBUG_LOG"
+}
+
 health_probe() {
-  local output rc code time_total marker_found
+  local output rc code time_total marker_state verdict reason
 
   # Always capture the body (not just when a marker is configured) so a
   # failing probe's response can be persisted as evidence by the caller.
@@ -52,26 +68,35 @@ health_probe() {
   time_total="$(sed -n 's/.*time_total=\([0-9.]*\).*/\1/p' <<< "$output" | tail -n1)"
   PROBE_RESULT="curl_rc=${rc}; ${output}"
 
+  # Single-exit so exactly one debug line is emitted per probe. marker_state
+  # is n/a until we actually check the body (no marker configured, or the
+  # HTTP check failed before we got there).
+  marker_state="n/a"
+  verdict=0
+  reason="ok"
+
   if [[ "$rc" -ne 0 || -z "$code" ]] || ! expected_http_code "$code"; then
-    return 1
-  fi
-
-  if [[ -n "${HEALTH_BODY_MARKER:-}" ]]; then
-    marker_found=0
-    grep -Fq -- "$HEALTH_BODY_MARKER" "$PROBE_BODY_FILE" && marker_found=1
-    if [[ "$marker_found" -ne 1 ]]; then
-      PROBE_RESULT="${PROBE_RESULT}; body_marker_missing=${HEALTH_BODY_MARKER}"
-      return 1
-    fi
-  fi
-
-  if [[ -n "${SLOW_RESPONSE_THRESHOLD_SEC:-}" && -n "$time_total" ]] && float_gt "$time_total" "$SLOW_RESPONSE_THRESHOLD_SEC"; then
+    verdict=1
+    reason="http_code=${code:-none} curl_rc=${rc}"
+  elif [[ -n "${HEALTH_BODY_MARKER:-}" ]] && ! grep -Fq -- "$HEALTH_BODY_MARKER" "$PROBE_BODY_FILE"; then
+    marker_state="no"
+    verdict=1
+    reason="body_marker_missing=${HEALTH_BODY_MARKER}"
+    PROBE_RESULT="${PROBE_RESULT}; body_marker_missing=${HEALTH_BODY_MARKER}"
+  elif [[ -n "${SLOW_RESPONSE_THRESHOLD_SEC:-}" && -n "$time_total" ]] && float_gt "$time_total" "$SLOW_RESPONSE_THRESHOLD_SEC"; then
+    [[ -n "${HEALTH_BODY_MARKER:-}" ]] && marker_state="yes"
+    verdict=1
+    reason="slow_response_threshold_exceeded=${SLOW_RESPONSE_THRESHOLD_SEC}"
     PROBE_RESULT="${PROBE_RESULT}; slow_response_threshold_exceeded=${SLOW_RESPONSE_THRESHOLD_SEC}"
-    return 1
+  else
+    [[ -n "${HEALTH_BODY_MARKER:-}" ]] && marker_state="yes"
   fi
 
-  rm -f "$PROBE_BODY_FILE"
-  return 0
+  debug_probe "$code" "$time_total" "$rc" "$marker_state" "$verdict" "$reason"
+
+  # Body file is evidence for the caller on failure; only clean it up when healthy.
+  [[ "$verdict" -eq 0 ]] && rm -f "$PROBE_BODY_FILE"
+  return "$verdict"
 }
 
 create_incident() {
@@ -565,6 +590,8 @@ main() {
   SLOW_RESPONSE_THRESHOLD_SEC="${SLOW_RESPONSE_THRESHOLD_SEC:-}"
   TOMCAT_SHUTDOWN_PORT="${TOMCAT_SHUTDOWN_PORT:-8005}"
   JOURNAL_LOOKBACK_MIN="${JOURNAL_LOOKBACK_MIN:-10}"
+  DEBUG="${DEBUG:-0}"
+  DEBUG_LOG="${DEBUG_LOG:-$(dirname "$GLOBAL_LOG")/watchdog-debug.log}"
   JASPER_HOME="${JASPER_HOME:-/opt/jasperreports-server-cp-7.1.0}"
   CTLSCRIPT="${CTLSCRIPT:-$JASPER_HOME/ctlscript.sh}"
   PG_ISREADY_BIN="${PG_ISREADY_BIN:-$JASPER_HOME/postgresql/bin/pg_isready}"
@@ -580,6 +607,10 @@ main() {
   touch "$GLOBAL_LOG"
   chmod 0640 "$GLOBAL_LOG"
   touch "$RESTART_HISTORY_FILE"
+  if [[ "$DEBUG" == "1" ]]; then
+    touch "$DEBUG_LOG"
+    chmod 0640 "$DEBUG_LOG"
+  fi
 
   # One monitor execution at a time. This also protects against a manual run while
   # the systemd timer is active.

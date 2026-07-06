@@ -209,3 +209,20 @@ On a confirmed health failure, the watchdog runs `ctlscript.sh status` and `pg_i
 If `pg_isready` never returns healthy within `PG_READY_TIMEOUT_SEC` (default 60s), the watchdog proceeds to recycle Tomcat anyway and records `pg_ready_timeout` in the log — waiting forever is worse than trying.
 
 If the recovery above does not restore `HEALTH_URL` within `RECOVERY_TIMEOUT_SEC`, and `ESCALATE_TO_FULL_RESTART=1` (the default), the watchdog falls back to `ctlscript.sh restart` (the whole stack) before giving up and calling `notify_human("recovery_failed", ...)`. Set `ESCALATE_TO_FULL_RESTART=0` to skip that fallback and only alert.
+
+## 10. Debug mode
+
+On healthy ticks the watchdog is silent — the main log only records events (failed probes, incidents, recovery). That is by design, but it can feel like nothing is happening. When you need to *see* the checks, set `DEBUG=1` in `jasper-watchdog.conf`. Every health check then writes one line to `DEBUG_LOG` (default `/var/log/jasper-watchdog/watchdog-debug.log`, next to the main log):
+
+```text
+2026-07-06T05:14:16Z | DEBUG probe | http_code=200 time_total=0.081s curl_rc=0 marker=MONITOR found=yes result=OK
+2026-07-06T05:14:31Z | DEBUG probe | http_code=000 time_total=?s curl_rc=7 marker=MONITOR found=n/a result=FAIL(http_code=none curl_rc=7)
+2026-07-06T05:14:46Z | DEBUG probe | http_code=200 time_total=6.2s curl_rc=0 marker=MONITOR found=no result=FAIL(body_marker_missing=MONITOR)
+```
+
+You get, per check: the response time, the HTTP code, and whether `HEALTH_BODY_MARKER` was found in the body. Two ways to use it:
+
+- **Live:** `DEBUG=1`, then `tail -f /var/log/jasper-watchdog/watchdog-debug.log` and watch each 15s tick.
+- **On demand:** with `DEBUG=1` in the config, run one check by hand and read the line it appends: `sudo CONFIG_FILE=/etc/jasper-watchdog/jasper-watchdog.conf /usr/local/sbin/jasper-watchdog-v2`.
+
+Turn `DEBUG` back to `0` when you are done — otherwise the debug log grows one line every 15 seconds (logrotate covers it, but there is no reason to leave it on). It never affects the normal recovery behavior.
