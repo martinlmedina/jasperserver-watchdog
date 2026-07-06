@@ -6,11 +6,29 @@
 HEALTH_URL="http://127.0.0.1:8080/jasperserver/login.html"
 EXPECTED_HTTP_CODES="200 302"
 
-# Optional content and latency validation. Leave both unset to keep
-# validating only the HTTP status code (previous behavior).
-# HEALTH_BODY_MARKER="MONITOR"
-# SLOW_RESPONSE_THRESHOLD_SEC=4
-JASPER_SERVICE="jasperserver"
+# Content and latency validation. Enabled by default to match the
+# production JasperServer CP 7.1.0 health check: the login page must
+# contain "MONITOR" and respond in under 4 seconds. A 200 response that
+# is slow or missing the marker is treated as a failure. Comment both
+# out to validate only the HTTP status code.
+HEALTH_BODY_MARKER="MONITOR"
+SLOW_RESPONSE_THRESHOLD_SEC=4
+
+# JasperServer is controlled through ctlscript.sh (no systemd unit backs
+# it on this host). Recovery diagnoses postgresql and tomcat separately
+# via "ctlscript.sh status" and pg_isready, then starts/restarts only the
+# unhealthy component before falling back to a full-stack restart.
+JASPER_HOME="/opt/jasperreports-server-cp-7.1.0"
+CTLSCRIPT="$JASPER_HOME/ctlscript.sh"
+PG_ISREADY_BIN="$JASPER_HOME/postgresql/bin/pg_isready"
+PG_COMPONENT="postgresql"
+TOMCAT_COMPONENT="tomcat"
+CTL_ACTION_TIMEOUT_SEC=120
+PG_READY_TIMEOUT_SEC=60
+PG_READY_RETRY_SEC=3
+# Set to 0 to only alert (never touch the stack again) when the
+# component-level recovery does not restore HTTP health.
+ESCALATE_TO_FULL_RESTART=1
 
 # Restart circuit breaker. Blocks further automatic restarts once the
 # maximum is reached inside the time window; evidence is still captured
