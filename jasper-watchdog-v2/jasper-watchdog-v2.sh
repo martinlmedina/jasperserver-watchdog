@@ -166,8 +166,7 @@ capture_system_snapshot() {
   capture os_disk.txt bash -c 'df -hT; echo; df -ih'
   capture os_top_processes.txt bash -c 'ps -eo pid,ppid,user,%cpu,%mem,etime,stat,args --sort=-%cpu | head -n 70; echo; ps -eo pid,ppid,user,%cpu,%mem,etime,stat,args --sort=-%mem | head -n 70'
   capture os_network.txt bash -c 'ss -ltnp; echo; ss -tanp | head -n 250'
-  capture service_status_before.txt systemctl status "$JASPER_SERVICE" --no-pager
-  capture service_journal_before.txt journalctl -u "$JASPER_SERVICE" --since '-15 minutes' --no-pager
+  capture service_status_before.txt timeout --signal=TERM --kill-after=2s "${CTL_ACTION_TIMEOUT_SEC}s" "$CTLSCRIPT" status
 }
 
 capture_jasper_logs() {
@@ -502,7 +501,7 @@ write_summary() {
     echo "- **Health URL:** $HEALTH_URL"
     echo "- **First failed probe:** $FIRST_PROBE"
     echo "- **Confirmation probe:** $CONFIRM_PROBE"
-    echo "- **Restart command exit code:** ${RESTART_RC:-unknown}"
+    echo "- **Recovery actions taken:** ${RECOVERY_ACTIONS:-none}"
     echo "- **Recovery state:** $recovery_state"
     echo "- **Last recovery probe:** ${RECOVERY_PROBE:-not_evaluated}"
     echo
@@ -584,8 +583,11 @@ main() {
   INCIDENT_STATUS=""
   FIRST_PROBE=""
   CONFIRM_PROBE=""
-  RESTART_RC=""
   RECOVERY_PROBE=""
+  RECOVERY_ACTIONS=""
+  PG_PROC_UP=0
+  TOMCAT_PROC_UP=0
+  PG_ACCEPTING=0
 
   # First check. A single miss does not restart the service.
   if health_probe; then
@@ -614,9 +616,7 @@ main() {
     exit 1
   fi
 
-  restart_service
-
-  if wait_for_recovery; then
+  if run_recovery; then
     INCIDENT_STATUS="RECOVERED"
     write_summary "$INCIDENT_STATUS"
     mark "incident_status=$INCIDENT_STATUS"
@@ -624,7 +624,7 @@ main() {
   fi
 
   INCIDENT_STATUS="NOT_RECOVERED"
-  notify_human "recovery_failed" "JasperServer watchdog: incident $INCIDENT_ID restarted $JASPER_SERVICE but health did not recover within ${RECOVERY_TIMEOUT_SEC}s"
+  notify_human "recovery_failed" "JasperServer watchdog: incident $INCIDENT_ID recovery actions (${RECOVERY_ACTIONS:-none}) did not restore health within ${RECOVERY_TIMEOUT_SEC}s"
   write_summary "$INCIDENT_STATUS"
   mark "incident_status=$INCIDENT_STATUS"
   exit 1

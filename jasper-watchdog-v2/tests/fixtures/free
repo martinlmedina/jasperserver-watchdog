@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+echo "              total        used        free      shared  buff/cache   available"
+echo "Mem:           2048        1024         512           0         512        1024"
+echo "Swap:             0           0           0"
