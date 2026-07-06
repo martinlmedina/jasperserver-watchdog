@@ -352,11 +352,35 @@ capture_pre_restart() {
   mark "phase=pre_restart_capture result=completed"
 }
 
-restart_service() {
-  mark "phase=restart action=systemctl_restart service=$JASPER_SERVICE"
-  capture restart_command.txt systemctl restart "$JASPER_SERVICE"
-  RESTART_RC="$(tail -n 2 "$INCIDENT/restart_command.txt" | sed -n 's/^# exit_code=//p' | tail -n1)"
-  mark "phase=restart result=command_finished exit_code=${RESTART_RC:-unknown}"
+validate_recovery_tools() {
+  if [[ ! -x "$CTLSCRIPT" ]]; then
+    mark "phase=recovery result=ctlscript_missing path=$CTLSCRIPT"
+    return 1
+  fi
+  if [[ ! -x "$PG_ISREADY_BIN" ]]; then
+    mark "phase=recovery result=pg_isready_missing path=$PG_ISREADY_BIN"
+    return 1
+  fi
+  return 0
+}
+
+diagnose() {
+  local status_output
+
+  status_output="$(timeout --signal=TERM --kill-after=2s "${CTL_ACTION_TIMEOUT_SEC}s" "$CTLSCRIPT" status 2>&1)"
+  printf '%s\n' "$status_output" > "$INCIDENT/recovery_status.txt"
+
+  PG_PROC_UP=0
+  TOMCAT_PROC_UP=0
+  grep -Eq "^${PG_COMPONENT} already running" <<< "$status_output" && PG_PROC_UP=1
+  grep -Eq "^${TOMCAT_COMPONENT} already running" <<< "$status_output" && TOMCAT_PROC_UP=1
+
+  PG_ACCEPTING=0
+  if PGCONNECT_TIMEOUT="$PG_CONNECT_TIMEOUT_SEC" "$PG_ISREADY_BIN" -h "$PGHOST" -p "$PGPORT" >/dev/null 2>&1; then
+    PG_ACCEPTING=1
+  fi
+
+  mark "phase=diagnose pg_proc_up=$PG_PROC_UP pg_accepting=$PG_ACCEPTING tomcat_proc_up=$TOMCAT_PROC_UP"
 }
 
 wait_for_recovery() {
@@ -418,7 +442,6 @@ main() {
   source "$CONFIG_FILE"
 
   : "${HEALTH_URL:?HEALTH_URL is required}"
-  : "${JASPER_SERVICE:?JASPER_SERVICE is required}"
   : "${INCIDENT_ROOT:?INCIDENT_ROOT is required}"
   : "${GLOBAL_LOG:?GLOBAL_LOG is required}"
   : "${PGHOST:?PGHOST is required}"
@@ -446,6 +469,15 @@ main() {
   HEALTH_BODY_MARKER="${HEALTH_BODY_MARKER:-}"
   SLOW_RESPONSE_THRESHOLD_SEC="${SLOW_RESPONSE_THRESHOLD_SEC:-}"
   TOMCAT_SHUTDOWN_PORT="${TOMCAT_SHUTDOWN_PORT:-8005}"
+  JASPER_HOME="${JASPER_HOME:-/opt/jasperreports-server-cp-7.1.0}"
+  CTLSCRIPT="${CTLSCRIPT:-$JASPER_HOME/ctlscript.sh}"
+  PG_ISREADY_BIN="${PG_ISREADY_BIN:-$JASPER_HOME/postgresql/bin/pg_isready}"
+  PG_COMPONENT="${PG_COMPONENT:-postgresql}"
+  TOMCAT_COMPONENT="${TOMCAT_COMPONENT:-tomcat}"
+  CTL_ACTION_TIMEOUT_SEC="${CTL_ACTION_TIMEOUT_SEC:-120}"
+  PG_READY_TIMEOUT_SEC="${PG_READY_TIMEOUT_SEC:-60}"
+  PG_READY_RETRY_SEC="${PG_READY_RETRY_SEC:-3}"
+  ESCALATE_TO_FULL_RESTART="${ESCALATE_TO_FULL_RESTART:-1}"
 
   mkdir -p "$INCIDENT_ROOT" "$(dirname "$GLOBAL_LOG")" /run/lock
   chmod 0700 "$INCIDENT_ROOT"
