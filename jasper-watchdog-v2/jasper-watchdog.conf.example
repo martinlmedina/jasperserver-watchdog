@@ -47,6 +47,10 @@ JASPER_LOG_DIR="/opt/jasperreports-server-cp-7.1.0/apache-tomcat/logs"
 # locally, e.g. by a cron job).
 TOMCAT_SHUTDOWN_PORT=8005
 
+# How far back to pull the system-wide journal (journalctl, no -u filter)
+# as part of the pre-restart evidence.
+JOURNAL_LOOKBACK_MIN=10
+
 # Timing. The systemd timer runs this monitor every 15 seconds.
 HEALTH_CONNECT_TIMEOUT_SEC=3
 HEALTH_MAX_TIME_SEC=10

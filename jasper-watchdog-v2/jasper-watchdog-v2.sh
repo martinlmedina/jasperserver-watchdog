@@ -30,15 +30,15 @@ float_gt() {
 }
 
 health_probe() {
-  local output rc code time_total body_file marker_found
+  local output rc code time_total marker_found
 
-  body_file="/dev/null"
-  if [[ -n "${HEALTH_BODY_MARKER:-}" ]]; then
-    body_file="$(mktemp)"
-  fi
+  # Always capture the body (not just when a marker is configured) so a
+  # failing probe's response can be persisted as evidence by the caller.
+  # Removed on success; left on disk on failure for the caller to use.
+  PROBE_BODY_FILE="$(mktemp)"
 
   output="$(LC_ALL=C curl --noproxy '*' --location --silent --show-error \
-      --output "$body_file" \
+      --output "$PROBE_BODY_FILE" \
       --write-out 'http_code=%{http_code} time_total=%{time_total} err=%{errormsg}' \
       --connect-timeout "$HEALTH_CONNECT_TIMEOUT_SEC" \
       --max-time "$HEALTH_MAX_TIME_SEC" \
@@ -49,14 +49,12 @@ health_probe() {
   PROBE_RESULT="curl_rc=${rc}; ${output}"
 
   if [[ "$rc" -ne 0 || -z "$code" ]] || ! expected_http_code "$code"; then
-    [[ "$body_file" != "/dev/null" ]] && rm -f "$body_file"
     return 1
   fi
 
   if [[ -n "${HEALTH_BODY_MARKER:-}" ]]; then
     marker_found=0
-    grep -Fq -- "$HEALTH_BODY_MARKER" "$body_file" && marker_found=1
-    rm -f "$body_file"
+    grep -Fq -- "$HEALTH_BODY_MARKER" "$PROBE_BODY_FILE" && marker_found=1
     if [[ "$marker_found" -ne 1 ]]; then
       PROBE_RESULT="${PROBE_RESULT}; body_marker_missing=${HEALTH_BODY_MARKER}"
       return 1
@@ -68,6 +66,7 @@ health_probe() {
     return 1
   fi
 
+  rm -f "$PROBE_BODY_FILE"
   return 0
 }
 
@@ -166,6 +165,8 @@ capture_system_snapshot() {
   capture os_disk.txt bash -c 'df -hT; echo; df -ih'
   capture os_top_processes.txt bash -c 'ps -eo pid,ppid,user,%cpu,%mem,etime,stat,args --sort=-%cpu | head -n 70; echo; ps -eo pid,ppid,user,%cpu,%mem,etime,stat,args --sort=-%mem | head -n 70'
   capture os_network.txt bash -c 'ss -ltnp; echo; ss -tanp | head -n 250'
+  capture os_dmesg.txt bash -c 'dmesg 2>&1 | tail -n 1000'
+  capture os_journal_recent.txt journalctl --no-pager --since "-${JOURNAL_LOOKBACK_MIN}m"
   capture service_status_before.txt timeout --signal=TERM --kill-after=2s "${CTL_ACTION_TIMEOUT_SEC}s" "$CTLSCRIPT" status
 }
 
@@ -198,6 +199,8 @@ capture_thread_dump() {
 
   printf 'java_pid=%s\n' "$java_pid" > "$INCIDENT/jvm_process.txt"
   ps -fp "$java_pid" >> "$INCIDENT/jvm_process.txt" 2>&1 || true
+
+  capture jvm_threads_cpu.txt ps -T -p "$java_pid" -o pid,lwp,pcpu,stat,wchan,comm --sort=-pcpu
 
   if command -v jcmd >/dev/null 2>&1; then
     capture jvm_thread_dump.txt timeout --signal=TERM --kill-after=2s "${CAPTURE_TIMEOUT_SEC}s" jcmd "$java_pid" Thread.print -l
@@ -508,8 +511,10 @@ write_summary() {
     echo "## Evidence captured before restart"
     echo
     echo "- OS health, memory, disk, processes and sockets"
+    echo "- Kernel ring buffer (dmesg) and recent system journal"
     echo "- Jasper/Tomcat service status and log tails"
-    echo "- JVM thread dump when jcmd or jstack was available"
+    echo "- JVM thread dump and per-thread CPU usage when jcmd or jstack was available"
+    echo "- The failing health-check response body (last_health_failure.html)"
     echo "- PostgreSQL activity, waits, active transactions, blocking sessions, locks and database statistics"
     echo
     echo "All files in this directory are intentionally restricted because they may include operational metadata."
@@ -555,6 +560,7 @@ main() {
   HEALTH_BODY_MARKER="${HEALTH_BODY_MARKER:-}"
   SLOW_RESPONSE_THRESHOLD_SEC="${SLOW_RESPONSE_THRESHOLD_SEC:-}"
   TOMCAT_SHUTDOWN_PORT="${TOMCAT_SHUTDOWN_PORT:-8005}"
+  JOURNAL_LOOKBACK_MIN="${JOURNAL_LOOKBACK_MIN:-10}"
   JASPER_HOME="${JASPER_HOME:-/opt/jasperreports-server-cp-7.1.0}"
   CTLSCRIPT="${CTLSCRIPT:-$JASPER_HOME/ctlscript.sh}"
   PG_ISREADY_BIN="${PG_ISREADY_BIN:-$JASPER_HOME/postgresql/bin/pg_isready}"
@@ -582,6 +588,7 @@ main() {
   INCIDENT_ID=""
   INCIDENT_STATUS=""
   FIRST_PROBE=""
+  FIRST_PROBE_BODY_FILE=""
   CONFIRM_PROBE=""
   RECOVERY_PROBE=""
   RECOVERY_ACTIONS=""
@@ -594,17 +601,23 @@ main() {
     exit 0
   fi
   FIRST_PROBE="$PROBE_RESULT"
+  FIRST_PROBE_BODY_FILE="$PROBE_BODY_FILE"
   write_global "event=health_probe_failed phase=first probe=$FIRST_PROBE"
 
   sleep "$CONFIRM_DELAY_SEC"
   if health_probe; then
+    rm -f "$FIRST_PROBE_BODY_FILE"
     write_global "event=health_probe_recovered_without_restart first_probe=$FIRST_PROBE confirmation_probe=$PROBE_RESULT"
     exit 0
   fi
   CONFIRM_PROBE="$PROBE_RESULT"
+  rm -f "$FIRST_PROBE_BODY_FILE"
 
   create_incident
   INCIDENT_STATUS="CAPTURING"
+  cp "$PROBE_BODY_FILE" "$INCIDENT/last_health_failure.html" 2>/dev/null || true
+  chmod 0600 "$INCIDENT/last_health_failure.html" 2>/dev/null || true
+  rm -f "$PROBE_BODY_FILE"
   capture_pre_restart
 
   if ! take_restart_slot; then

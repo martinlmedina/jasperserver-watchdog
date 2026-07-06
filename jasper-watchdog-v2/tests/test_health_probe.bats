@@ -54,3 +54,18 @@ setup() {
   run health_probe
   [ "$status" -eq 0 ]
 }
+
+@test "leaves the response body file in place after a failure" {
+  FAKE_CURL_HTTP_CODE=500
+  FAKE_CURL_BODY="<html>error</html>"
+  health_probe || true
+  [ -f "$PROBE_BODY_FILE" ]
+  run cat "$PROBE_BODY_FILE"
+  [[ "$output" == *"error"* ]]
+  rm -f "$PROBE_BODY_FILE"
+}
+
+@test "removes the response body file after a successful probe" {
+  health_probe
+  [ ! -e "$PROBE_BODY_FILE" ]
+}

@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+echo "-- fake journal entry for tests --"

@@ -9,10 +9,11 @@ The evidence is captured **before the restart** and stays inside the same incide
   jasper_YYYYMMDDTHHMMSSZ_pidNNNN/
     README.md
     incident.log
-    os_*.txt
+    last_health_failure.html
+    os_*.txt (including os_dmesg.txt and os_journal_recent.txt)
     service_status_before.txt
     log_tail_*.txt
-    jvm_thread_dump.txt
+    jvm_*.txt (process info, thread dump, per-thread CPU usage)
     cron_and_sessions.txt
     pg_*.txt
     recovery_status.txt
@@ -28,6 +29,7 @@ The evidence is captured **before the restart** and stays inside the same incide
 ## 1. Prerequisites
 
 - `curl`, `psql`, `timeout`, `flock`, `ss`, `pg_isready` (shipped with JasperServer's bundled PostgreSQL).
+- `dmesg` and `journalctl` for kernel/system-journal evidence. If either is missing, its capture file just records the error — the watchdog still runs.
 - Read/execute access to `ctlscript.sh` in the JasperServer install directory — this watchdog controls JasperServer through it, not through a systemd unit.
 - `systemctl` is still required to run the watchdog's own timer/service (see Install, step 3.4), independent of how JasperServer itself is managed.
 - `jcmd` or `jstack` from the JDK is recommended, so the incident includes a JVM thread dump.

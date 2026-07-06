@@ -5,6 +5,7 @@ setup() {
   PATH="$BATS_TEST_DIRNAME/fixtures:$PATH"
   CTLSCRIPT="$BATS_TEST_DIRNAME/fixtures/ctlscript"
   CTL_ACTION_TIMEOUT_SEC=5
+  JOURNAL_LOOKBACK_MIN=10
   INCIDENT="$(mktemp -d)"
   GLOBAL_LOG="$(mktemp)"
   JASPER_LOG_DIR="$(mktemp -d)"
@@ -30,4 +31,12 @@ teardown() {
   [ ! -f "$INCIDENT/service_journal_before.txt" ]
   run cat "$CTLSCRIPT_LOG"
   [ "$output" == "status" ]
+}
+
+@test "captures dmesg and a recent system-wide journal window" {
+  capture_system_snapshot
+  run cat "$INCIDENT/os_dmesg.txt"
+  [[ "$output" == *"fake kernel ring buffer line"* ]]
+  run cat "$INCIDENT/os_journal_recent.txt"
+  [[ "$output" == *"fake journal entry"* ]]
 }
