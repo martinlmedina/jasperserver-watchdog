@@ -95,3 +95,60 @@ teardown() {
   run cat "$ALERT_LOG"
   [[ "$output" == *"event=recovery_failed"* ]]
 }
+
+@test "escalates to a full restart when the surgical recovery never restores health" {
+  RECOVERY_TIMEOUT_SEC=1
+  RECOVERY_RETRY_SEC=1
+  ESCALATE_TO_FULL_RESTART=1
+  PATH="$BATS_TEST_DIRNAME/fixtures:$PATH"
+  HEALTH_URL="http://example.invalid/health"
+  HEALTH_CONNECT_TIMEOUT_SEC=3
+  HEALTH_MAX_TIME_SEC=10
+  EXPECTED_HTTP_CODES="200"
+  HEALTH_BODY_MARKER=""
+  SLOW_RESPONSE_THRESHOLD_SEC=""
+  export FAKE_CURL_RC=0 FAKE_CURL_HTTP_CODE=500 FAKE_CURL_TIME_TOTAL=0.1 FAKE_CURL_BODY="" FAKE_CURL_ERR=""
+
+  run run_recovery
+  [ "$status" -eq 1 ]
+  run grep -c "^restart$" "$CTLSCRIPT_LOG"
+  [ "$output" -eq 1 ]
+}
+
+@test "does not escalate to a full restart when escalation is disabled" {
+  RECOVERY_TIMEOUT_SEC=1
+  RECOVERY_RETRY_SEC=1
+  ESCALATE_TO_FULL_RESTART=0
+  PATH="$BATS_TEST_DIRNAME/fixtures:$PATH"
+  HEALTH_URL="http://example.invalid/health"
+  HEALTH_CONNECT_TIMEOUT_SEC=3
+  HEALTH_MAX_TIME_SEC=10
+  EXPECTED_HTTP_CODES="200"
+  HEALTH_BODY_MARKER=""
+  SLOW_RESPONSE_THRESHOLD_SEC=""
+  export FAKE_CURL_RC=0 FAKE_CURL_HTTP_CODE=500 FAKE_CURL_TIME_TOTAL=0.1 FAKE_CURL_BODY="" FAKE_CURL_ERR=""
+
+  run run_recovery
+  [ "$status" -eq 1 ]
+  run grep -c "^restart$" "$CTLSCRIPT_LOG"
+  [ "$output" -eq 0 ]
+}
+
+@test "does not escalate when the surgical recovery already restored health" {
+  RECOVERY_TIMEOUT_SEC=5
+  RECOVERY_RETRY_SEC=1
+  ESCALATE_TO_FULL_RESTART=1
+  PATH="$BATS_TEST_DIRNAME/fixtures:$PATH"
+  HEALTH_URL="http://example.invalid/health"
+  HEALTH_CONNECT_TIMEOUT_SEC=3
+  HEALTH_MAX_TIME_SEC=10
+  EXPECTED_HTTP_CODES="200"
+  HEALTH_BODY_MARKER=""
+  SLOW_RESPONSE_THRESHOLD_SEC=""
+  export FAKE_CURL_RC=0 FAKE_CURL_HTTP_CODE=200 FAKE_CURL_TIME_TOTAL=0.1 FAKE_CURL_BODY="" FAKE_CURL_ERR=""
+
+  run run_recovery
+  [ "$status" -eq 0 ]
+  run grep -c "^restart$" "$CTLSCRIPT_LOG"
+  [ "$output" -eq 0 ]
+}

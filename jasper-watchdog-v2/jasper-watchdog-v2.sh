@@ -445,6 +445,31 @@ recover_components() {
   return 0
 }
 
+full_restart() {
+  mark "phase=recovery action=full_restart"
+  ctl_action recovery_full_restart.txt restart
+  RECOVERY_ACTIONS="${RECOVERY_ACTIONS}full_restart "
+}
+
+run_recovery() {
+  if ! recover_components; then
+    return 1
+  fi
+
+  if wait_for_recovery; then
+    return 0
+  fi
+
+  if [[ "$ESCALATE_TO_FULL_RESTART" -eq 1 ]]; then
+    full_restart
+    if wait_for_recovery; then
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
 wait_for_recovery() {
   local deadline now
   deadline=$((SECONDS + RECOVERY_TIMEOUT_SEC))
