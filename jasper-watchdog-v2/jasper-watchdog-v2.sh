@@ -166,8 +166,7 @@ capture_system_snapshot() {
   capture os_disk.txt bash -c 'df -hT; echo; df -ih'
   capture os_top_processes.txt bash -c 'ps -eo pid,ppid,user,%cpu,%mem,etime,stat,args --sort=-%cpu | head -n 70; echo; ps -eo pid,ppid,user,%cpu,%mem,etime,stat,args --sort=-%mem | head -n 70'
   capture os_network.txt bash -c 'ss -ltnp; echo; ss -tanp | head -n 250'
-  capture service_status_before.txt systemctl status "$JASPER_SERVICE" --no-pager
-  capture service_journal_before.txt journalctl -u "$JASPER_SERVICE" --since '-15 minutes' --no-pager
+  capture service_status_before.txt timeout --signal=TERM --kill-after=2s "${CTL_ACTION_TIMEOUT_SEC}s" "$CTLSCRIPT" status
 }
 
 capture_jasper_logs() {
@@ -352,11 +351,122 @@ capture_pre_restart() {
   mark "phase=pre_restart_capture result=completed"
 }
 
-restart_service() {
-  mark "phase=restart action=systemctl_restart service=$JASPER_SERVICE"
-  capture restart_command.txt systemctl restart "$JASPER_SERVICE"
-  RESTART_RC="$(tail -n 2 "$INCIDENT/restart_command.txt" | sed -n 's/^# exit_code=//p' | tail -n1)"
-  mark "phase=restart result=command_finished exit_code=${RESTART_RC:-unknown}"
+validate_recovery_tools() {
+  if [[ ! -x "$CTLSCRIPT" ]]; then
+    mark "phase=recovery result=ctlscript_missing path=$CTLSCRIPT"
+    return 1
+  fi
+  if [[ ! -x "$PG_ISREADY_BIN" ]]; then
+    mark "phase=recovery result=pg_isready_missing path=$PG_ISREADY_BIN"
+    return 1
+  fi
+  return 0
+}
+
+diagnose() {
+  local status_output
+
+  status_output="$(timeout --signal=TERM --kill-after=2s "${CTL_ACTION_TIMEOUT_SEC}s" "$CTLSCRIPT" status 2>&1)"
+  printf '%s\n' "$status_output" > "$INCIDENT/recovery_status.txt"
+
+  PG_PROC_UP=0
+  TOMCAT_PROC_UP=0
+  grep -Eq "^${PG_COMPONENT} already running" <<< "$status_output" && PG_PROC_UP=1
+  grep -Eq "^${TOMCAT_COMPONENT} already running" <<< "$status_output" && TOMCAT_PROC_UP=1
+
+  PG_ACCEPTING=0
+  if PGCONNECT_TIMEOUT="$PG_CONNECT_TIMEOUT_SEC" "$PG_ISREADY_BIN" -h "$PGHOST" -p "$PGPORT" >/dev/null 2>&1; then
+    PG_ACCEPTING=1
+  fi
+
+  mark "phase=diagnose pg_proc_up=$PG_PROC_UP pg_accepting=$PG_ACCEPTING tomcat_proc_up=$TOMCAT_PROC_UP"
+}
+
+ctl_action() {
+  local filename="$1"
+  shift
+  capture "$filename" timeout --signal=TERM --kill-after=2s "${CTL_ACTION_TIMEOUT_SEC}s" "$CTLSCRIPT" "$@"
+}
+
+wait_pg_ready() {
+  local deadline
+  deadline=$((SECONDS + PG_READY_TIMEOUT_SEC))
+
+  while (( SECONDS < deadline )); do
+    if PGCONNECT_TIMEOUT="$PG_CONNECT_TIMEOUT_SEC" "$PG_ISREADY_BIN" -h "$PGHOST" -p "$PGPORT" >/dev/null 2>&1; then
+      mark "phase=recovery component=postgresql result=pg_ready"
+      return 0
+    fi
+    sleep "$PG_READY_RETRY_SEC"
+  done
+
+  mark "phase=recovery component=postgresql result=pg_ready_timeout timeout_sec=$PG_READY_TIMEOUT_SEC"
+  return 1
+}
+
+recover_postgres() {
+  if (( PG_PROC_UP == 1 && PG_ACCEPTING == 1 )); then
+    return 0
+  fi
+
+  mark "phase=recovery component=postgresql action=start"
+  ctl_action recovery_postgres_start.txt start "$PG_COMPONENT"
+  RECOVERY_ACTIONS="${RECOVERY_ACTIONS}postgres_start "
+
+  if wait_pg_ready; then
+    PG_ACCEPTING=1
+  fi
+}
+
+recover_tomcat() {
+  if (( TOMCAT_PROC_UP == 0 )); then
+    mark "phase=recovery component=tomcat action=start"
+    ctl_action recovery_tomcat_start.txt start "$TOMCAT_COMPONENT"
+    RECOVERY_ACTIONS="${RECOVERY_ACTIONS}tomcat_start "
+  else
+    mark "phase=recovery component=tomcat action=restart"
+    ctl_action recovery_tomcat_restart.txt restart "$TOMCAT_COMPONENT"
+    RECOVERY_ACTIONS="${RECOVERY_ACTIONS}tomcat_restart "
+  fi
+}
+
+recover_components() {
+  RECOVERY_ACTIONS=""
+
+  if ! validate_recovery_tools; then
+    notify_human "recovery_failed" "JasperServer watchdog: incident $INCIDENT_ID cannot run recovery, ctlscript or pg_isready missing or not executable"
+    return 1
+  fi
+
+  diagnose
+  recover_postgres
+  recover_tomcat
+  return 0
+}
+
+full_restart() {
+  mark "phase=recovery action=full_restart"
+  ctl_action recovery_full_restart.txt restart
+  RECOVERY_ACTIONS="${RECOVERY_ACTIONS}full_restart "
+}
+
+run_recovery() {
+  if ! recover_components; then
+    return 1
+  fi
+
+  if wait_for_recovery; then
+    return 0
+  fi
+
+  if [[ "$ESCALATE_TO_FULL_RESTART" == "1" ]]; then
+    full_restart
+    if wait_for_recovery; then
+      return 0
+    fi
+  fi
+
+  return 1
 }
 
 wait_for_recovery() {
@@ -391,14 +501,14 @@ write_summary() {
     echo "- **Health URL:** $HEALTH_URL"
     echo "- **First failed probe:** $FIRST_PROBE"
     echo "- **Confirmation probe:** $CONFIRM_PROBE"
-    echo "- **Restart command exit code:** ${RESTART_RC:-unknown}"
+    echo "- **Recovery actions taken:** ${RECOVERY_ACTIONS:-none}"
     echo "- **Recovery state:** $recovery_state"
     echo "- **Last recovery probe:** ${RECOVERY_PROBE:-not_evaluated}"
     echo
     echo "## Evidence captured before restart"
     echo
     echo "- OS health, memory, disk, processes and sockets"
-    echo "- Jasper/Tomcat service status, journal and log tails"
+    echo "- Jasper/Tomcat service status and log tails"
     echo "- JVM thread dump when jcmd or jstack was available"
     echo "- PostgreSQL activity, waits, active transactions, blocking sessions, locks and database statistics"
     echo
@@ -418,7 +528,6 @@ main() {
   source "$CONFIG_FILE"
 
   : "${HEALTH_URL:?HEALTH_URL is required}"
-  : "${JASPER_SERVICE:?JASPER_SERVICE is required}"
   : "${INCIDENT_ROOT:?INCIDENT_ROOT is required}"
   : "${GLOBAL_LOG:?GLOBAL_LOG is required}"
   : "${PGHOST:?PGHOST is required}"
@@ -446,6 +555,15 @@ main() {
   HEALTH_BODY_MARKER="${HEALTH_BODY_MARKER:-}"
   SLOW_RESPONSE_THRESHOLD_SEC="${SLOW_RESPONSE_THRESHOLD_SEC:-}"
   TOMCAT_SHUTDOWN_PORT="${TOMCAT_SHUTDOWN_PORT:-8005}"
+  JASPER_HOME="${JASPER_HOME:-/opt/jasperreports-server-cp-7.1.0}"
+  CTLSCRIPT="${CTLSCRIPT:-$JASPER_HOME/ctlscript.sh}"
+  PG_ISREADY_BIN="${PG_ISREADY_BIN:-$JASPER_HOME/postgresql/bin/pg_isready}"
+  PG_COMPONENT="${PG_COMPONENT:-postgresql}"
+  TOMCAT_COMPONENT="${TOMCAT_COMPONENT:-tomcat}"
+  CTL_ACTION_TIMEOUT_SEC="${CTL_ACTION_TIMEOUT_SEC:-120}"
+  PG_READY_TIMEOUT_SEC="${PG_READY_TIMEOUT_SEC:-60}"
+  PG_READY_RETRY_SEC="${PG_READY_RETRY_SEC:-3}"
+  ESCALATE_TO_FULL_RESTART="${ESCALATE_TO_FULL_RESTART:-1}"
 
   mkdir -p "$INCIDENT_ROOT" "$(dirname "$GLOBAL_LOG")" /run/lock
   chmod 0700 "$INCIDENT_ROOT"
@@ -465,8 +583,11 @@ main() {
   INCIDENT_STATUS=""
   FIRST_PROBE=""
   CONFIRM_PROBE=""
-  RESTART_RC=""
   RECOVERY_PROBE=""
+  RECOVERY_ACTIONS=""
+  PG_PROC_UP=0
+  TOMCAT_PROC_UP=0
+  PG_ACCEPTING=0
 
   # First check. A single miss does not restart the service.
   if health_probe; then
@@ -495,9 +616,7 @@ main() {
     exit 1
   fi
 
-  restart_service
-
-  if wait_for_recovery; then
+  if run_recovery; then
     INCIDENT_STATUS="RECOVERED"
     write_summary "$INCIDENT_STATUS"
     mark "incident_status=$INCIDENT_STATUS"
@@ -505,7 +624,7 @@ main() {
   fi
 
   INCIDENT_STATUS="NOT_RECOVERED"
-  notify_human "recovery_failed" "JasperServer watchdog: incident $INCIDENT_ID restarted $JASPER_SERVICE but health did not recover within ${RECOVERY_TIMEOUT_SEC}s"
+  notify_human "recovery_failed" "JasperServer watchdog: incident $INCIDENT_ID recovery actions (${RECOVERY_ACTIONS:-none}) did not restore health within ${RECOVERY_TIMEOUT_SEC}s"
   write_summary "$INCIDENT_STATUS"
   mark "incident_status=$INCIDENT_STATUS"
   exit 1

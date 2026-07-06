@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+echo "procs -----------memory---------- ---swap-- -----io---- -system-- ------cpu-----"
+echo " r  b   swpd   free   buff  cache   si   so    bi    bo   in   cs us sy id wa st"
+echo " 0  0      0 512000  10240 512000    0    0     0     0   10   20  1  1 98  0  0"

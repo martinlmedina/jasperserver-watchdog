@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Fake pg_isready for bats tests. Controlled via FAKE_PG_ISREADY_RC:
+# 0 = accepting connections (default), non-zero = not ready.
+exit "${FAKE_PG_ISREADY_RC:-0}"

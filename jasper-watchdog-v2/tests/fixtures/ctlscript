@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Fake ctlscript.sh for bats tests. Logs every invocation (one line per
+# call, space-joined arguments) to CTLSCRIPT_LOG when set, and emits a
+# controllable `status` output via FAKE_TOMCAT_STATUS/FAKE_PG_STATUS
+# ("running", "stopped", or anything else to simulate an unparseable
+# line). Exit code controlled via FAKE_CTLSCRIPT_RC.
+if [[ -n "${CTLSCRIPT_LOG:-}" ]]; then
+  printf '%s\n' "$*" >> "$CTLSCRIPT_LOG"
+fi
+
+if [[ "${1:-}" == "status" ]]; then
+  case "${FAKE_TOMCAT_STATUS:-running}" in
+    running) echo "tomcat already running" ;;
+    stopped) echo "tomcat not running" ;;
+    *) echo "tomcat: unable to determine status" ;;
+  esac
+  case "${FAKE_PG_STATUS:-running}" in
+    running) echo "postgresql already running" ;;
+    stopped) echo "postgresql not running" ;;
+    *) echo "postgresql: unable to determine status" ;;
+  esac
+fi
+
+exit "${FAKE_CTLSCRIPT_RC:-0}"

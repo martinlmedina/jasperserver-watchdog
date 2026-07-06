@@ -1,6 +1,6 @@
 # JasperServer Watchdog v2
 
-This version does not restart JasperServer on a single failed response. It runs every **15 seconds**, repeats a failed application-health probe after **5 seconds**, and only if the failure is confirmed it creates an incident folder, captures evidence, and then executes `systemctl restart jasperserver`.
+This version does not restart JasperServer on a single failed response. It runs every **15 seconds**, repeats a failed application-health probe after **5 seconds**, and only if the failure is confirmed it creates an incident folder, captures evidence, then diagnoses which component (`postgresql`, `tomcat`, or both) is unhealthy via `ctlscript.sh status` and `pg_isready`, and applies the minimal correct recovery — starting a stopped component or recycling a running-but-unhealthy Tomcat — before escalating to a full `ctlscript.sh restart` if that isn't enough.
 
 The evidence is captured **before the restart** and stays inside the same incident:
 
@@ -10,21 +10,29 @@ The evidence is captured **before the restart** and stays inside the same incide
     README.md
     incident.log
     os_*.txt
-    service_*.txt
+    service_status_before.txt
     log_tail_*.txt
     jvm_thread_dump.txt
     cron_and_sessions.txt
     pg_*.txt
-    restart_command.txt
+    recovery_status.txt
+    recovery_postgres_start.txt
+    recovery_tomcat_start.txt
+    recovery_tomcat_restart.txt
+    recovery_full_restart.txt
     recovery_checks.log
 ```
 
+(the last four `recovery_*` files are only produced when that specific action was actually taken)
+
 ## 1. Prerequisites
 
-- `curl`, `psql`, `systemctl`, `journalctl`, `timeout`, `flock`, `ss`.
+- `curl`, `psql`, `timeout`, `flock`, `ss`, `pg_isready` (shipped with JasperServer's bundled PostgreSQL).
+- Read/execute access to `ctlscript.sh` in the JasperServer install directory — this watchdog controls JasperServer through it, not through a systemd unit.
+- `systemctl` is still required to run the watchdog's own timer/service (see Install, step 3.4), independent of how JasperServer itself is managed.
 - `jcmd` or `jstack` from the JDK is recommended, so the incident includes a JVM thread dump.
 - A dedicated PostgreSQL monitoring login. Do **not** reuse the application role `jasperdb` or its password.
-- The watchdog is intended to run as `root`, because it needs to invoke `systemctl restart` and read Tomcat/Jasper logs.
+- The watchdog is intended to run as `root`, because it needs to invoke `ctlscript.sh` and read Tomcat/Jasper logs.
 
 ## 2. PostgreSQL monitoring role
 
@@ -86,8 +94,8 @@ that is the explicit go-live step in 3.4.
 Edit `/etc/jasper-watchdog/jasper-watchdog.conf` and validate these values
 against the server:
 
-- `HEALTH_URL`: a JasperServer endpoint that proves the application is alive. Do not leave a mere port check as the only health condition. Optionally set `HEALTH_BODY_MARKER` to a string that must appear in the response body, and `SLOW_RESPONSE_THRESHOLD_SEC` to treat a slow-but-200 response as a failure. Both are unset by default.
-- `JASPER_SERVICE`: the actual systemd service name.
+- `HEALTH_URL`: a JasperServer endpoint that proves the application is alive. Do not leave a mere port check as the only health condition. `HEALTH_BODY_MARKER` and `SLOW_RESPONSE_THRESHOLD_SEC` ship enabled by default (`"MONITOR"` / `4` seconds) so a slow-but-200 response is treated as a failure; comment both out to validate only the HTTP status code.
+- `JASPER_HOME`/`CTLSCRIPT`/`PG_ISREADY_BIN`: confirm these match the actual JasperServer install path on this server.
 - `JASPER_LOG_DIR`: the Tomcat/Jasper logs directory.
 
 Create the password file. The line format is `host:port:database:user:password`:
@@ -150,7 +158,7 @@ sudo systemctl status jasper-watchdog.timer --no-pager
 sudo tail -f /var/log/jasper-watchdog/watchdog.log
 ```
 
-To test the incident path without modifying the production service, temporarily set `HEALTH_URL` to an unused local port and replace `JASPER_SERVICE` with a harmless disposable test service in a non-production window. Then verify that the incident directory includes all `pg_*.txt` files **before** `restart_command.txt`.
+To test the incident path without modifying the production service, temporarily set `HEALTH_URL` to an unused local port in a non-production window. Then verify that the incident directory includes all `pg_*.txt` files **before** the `recovery_*.txt` files. This test will trigger a real `ctlscript.sh` restart sequence against the test service — do not point it at a live JasperServer instance.
 
 ## 6. Operational rule
 
@@ -158,8 +166,8 @@ Do not cancel PostgreSQL backends, kill JVM threads, or reboot the VM from this 
 
 1. confirm an application health failure;
 2. preserve forensic evidence;
-3. restart JasperServer;
-4. record whether health recovered.
+3. diagnose and recover the unhealthy component(s) — starting whichever of `postgresql`/`tomcat` is down, always recycling a running-but-unhealthy Tomcat, escalating to a full `ctlscript.sh restart` only if that doesn't restore health and `ESCALATE_TO_FULL_RESTART=1`;
+4. record whether health recovered and which recovery actions were taken.
 
 This preserves the evidence needed to determine whether the root cause was Jasper/Tomcat, a blocked or saturated PostgreSQL workload, resource pressure, or the surrounding host.
 
@@ -168,8 +176,8 @@ This preserves the evidence needed to determine whether the root cause was Jaspe
 `MAX_AUTORESTARTS` (default 3) and `RESTART_WINDOW_SEC` (default 900) bound how many
 automatic restarts the watchdog performs inside a rolling time window. Evidence is
 always captured before this check runs. Once the limit is reached, the watchdog marks
-the incident `BLOCKED_CIRCUIT_BREAKER`, skips `systemctl restart`, and requires a human
-to investigate and restart the service manually. Restart timestamps are tracked in a
+the incident `BLOCKED_CIRCUIT_BREAKER`, skips component-aware recovery, and requires a
+human to investigate and restart the service manually. Restart timestamps are tracked in a
 state file next to `GLOBAL_LOG` (`restart-history.log` by default, overridable via
 `RESTART_HISTORY_FILE`).
 
@@ -180,3 +188,18 @@ calls it as `"$ALERT_COMMAND" "<event>" "<message>"` on three events: `incident_
 `circuit_breaker_tripped`, and `recovery_failed`. Leave it unset to disable alerting; a
 failing `ALERT_COMMAND` is logged but never blocks the watchdog. Wire it to Slack,
 email, or any paging system outside this script.
+
+## 9. Component-aware recovery
+
+On a confirmed health failure, the watchdog runs `ctlscript.sh status` and `pg_isready` to decide what actually needs fixing, instead of restarting the whole stack:
+
+| Detected state | PostgreSQL action | Tomcat action |
+|---|---|---|
+| postgres down, tomcat up | start, wait for `pg_isready` | restart |
+| postgres up, tomcat down | — | start |
+| both down | start, wait for `pg_isready` | start |
+| both up (slow response, wrong content, or non-200) | — | restart |
+
+If `pg_isready` never returns healthy within `PG_READY_TIMEOUT_SEC` (default 60s), the watchdog proceeds to recycle Tomcat anyway and records `pg_ready_timeout` in the log — waiting forever is worse than trying.
+
+If the recovery above does not restore `HEALTH_URL` within `RECOVERY_TIMEOUT_SEC`, and `ESCALATE_TO_FULL_RESTART=1` (the default), the watchdog falls back to `ctlscript.sh restart` (the whole stack) before giving up and calling `notify_human("recovery_failed", ...)`. Set `ESCALATE_TO_FULL_RESTART=0` to skip that fallback and only alert.
