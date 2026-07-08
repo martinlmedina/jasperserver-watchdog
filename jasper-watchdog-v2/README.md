@@ -234,3 +234,38 @@ You get, per check: the response time, the HTTP code, and whether `HEALTH_BODY_M
 - **On demand:** with `DEBUG=1` in the config, run one check by hand and read the line it appends: `sudo CONFIG_FILE=/etc/jasper-watchdog/jasper-watchdog.conf /usr/local/sbin/jasper-watchdog-v2`.
 
 Turn `DEBUG` back to `0` when you are done — otherwise the debug log grows one line every 15 seconds (logrotate covers it, but there is no reason to leave it on). It never affects the normal recovery behavior.
+
+## 11. Tomcat disk hygiene companion (`limpiar_tomcat.sh`)
+
+`limpiar_tomcat.sh` is an optional companion script that reclaims the junk a busy
+JasperServer accumulates under `apache-tomcat/{temp,logs}`. It is intentionally
+**not** installed by `install.sh` and does **not** talk to `ctlscript` or systemd:
+it never stops the stack, so it cannot fight the watchdog. Everything is deleted
+strictly **by age**, so files a running Tomcat still holds open — in-flight report
+temp, the live `catalina.out`, the active JDBC driver jar — are never touched.
+
+What it reclaims (all age-gated, all tunable via env vars at the top of the script):
+
+| Target | Rule | Default |
+|---|---|---|
+| Heap dumps `*.hprof` (biggest hog — dumped on `OutOfMemoryError`, often GB each) | delete, logging each size | older than `HPROF_MAX_AGE_DAYS` (3) |
+| `catalina.out` | truncate in place (never delete), keeping Tomcat's open fd | over `CATALINA_OUT_MAX_MB` (200) |
+| Rotated logs (`catalina.<date>.log`, `localhost*`, `*access*`, gc logs) | delete | older than `LOG_MAX_AGE_DAYS` (21) |
+| Report temp (`file.buff.os.*.tmp`, `+~JF*.tmp`, `temp/buffer/*`) | delete | older than `TEMP_MAX_AGE_MIN` (720) |
+| Extracted JDBC jars (`jdbc-*.jar`) | delete, but always keep the running instance's copy (anchored to `catalina.pid`) | older than `JDBC_MAX_AGE_MIN` (1440) |
+
+Never touched: `catalina.pid`, the `temp/jasperserver/` app dir, `work/`, and the
+current instance's JDBC jar.
+
+Deploy it wherever your cleanup cron already points (e.g. `/home/opc/script/limpiar_tomcat.sh`)
+and dry-run it first:
+
+```bash
+DRY_RUN=1 TOMCAT_DIR=/opt/jasperreports-server-cp-7.1.0/apache-tomcat ./limpiar_tomcat.sh
+# review /var/log/limpiar_tomcat.log, then run for real:
+./limpiar_tomcat.sh
+```
+
+Because it runs safely while Tomcat is up, schedule it whenever convenient — it does
+not need a maintenance window. A large `.hprof` haul is a signal in itself: it means
+the JVM has been hitting `OutOfMemoryError`, worth investigating separately.
