@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# limpiar_tomcat.sh -- JasperServer / Tomcat disk hygiene.
+# tomcat-cleanup.sh -- JasperServer / Tomcat disk hygiene.
 #
 # Companion to the JasperServer watchdog. Reclaims the junk that a busy
 # JasperServer accumulates under apache-tomcat/{temp,logs} WITHOUT stopping the
@@ -26,8 +26,8 @@
 # JDBC jar of the current instance.
 #
 # Usage:
-#   limpiar_tomcat.sh            # clean
-#   DRY_RUN=1 limpiar_tomcat.sh  # report what would be removed, delete nothing
+#   tomcat-cleanup.sh            # clean
+#   DRY_RUN=1 tomcat-cleanup.sh  # report what would be removed, delete nothing
 #
 # Safe to run from cron at any time while Tomcat is up.
 
@@ -192,8 +192,8 @@ main() {
   JDBC_MAX_AGE_MIN="${JDBC_MAX_AGE_MIN:-1440}"
   CATALINA_OUT_MAX_MB="${CATALINA_OUT_MAX_MB:-200}"
   DRY_RUN="${DRY_RUN:-0}"
-  LOG_FILE="${LOG_FILE:-/var/log/limpiar_tomcat.log}"
-  LOCK_FILE="${LOCK_FILE:-/run/lock/limpiar_tomcat.lock}"
+  LOG_FILE="${LOG_FILE:-/var/log/tomcat-cleanup.log}"
+  LOCK_FILE="${LOCK_FILE:-/run/lock/tomcat-cleanup.lock}"
 
   mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
   touch "$LOG_FILE" 2>/dev/null || true
@@ -201,14 +201,14 @@ main() {
   # One cleanup at a time; a slow run must not overlap the next cron tick.
   exec 9>"$LOCK_FILE"
   if ! flock -n 9; then
-    echo "$(now_utc) | another limpiar_tomcat run holds the lock; exiting" >&2
+    echo "$(now_utc) | another tomcat-cleanup run holds the lock; exiting" >&2
     exit 0
   fi
 
   RECLAIMED_BYTES=0
   COUNT=0
 
-  log "=== limpiar_tomcat start (dry_run=$DRY_RUN tomcat=$TOMCAT_DIR) ==="
+  log "=== tomcat-cleanup start (dry_run=$DRY_RUN tomcat=$TOMCAT_DIR) ==="
   if [[ ! -d "$TOMCAT_DIR" ]]; then
     log "ERROR TOMCAT_DIR does not exist: $TOMCAT_DIR"
     exit 1
@@ -220,7 +220,7 @@ main() {
   clean_report_temp
   clean_jdbc_jars
 
-  log "=== limpiar_tomcat done: ${COUNT} item(s), $(human "$RECLAIMED_BYTES") reclaimed (dry_run=$DRY_RUN) ==="
+  log "=== tomcat-cleanup done: ${COUNT} item(s), $(human "$RECLAIMED_BYTES") reclaimed (dry_run=$DRY_RUN) ==="
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then

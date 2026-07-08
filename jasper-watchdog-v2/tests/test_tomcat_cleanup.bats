@@ -1,12 +1,12 @@
 #!/usr/bin/env bats
 
-# limpiar_tomcat.sh cleans Tomcat junk by age while the stack stays up. These
+# tomcat-cleanup.sh cleans Tomcat junk by age while the stack stays up. These
 # tests source the script (main is guarded) and drive the cleaner functions
 # against throwaway TEMP_DIR/LOG_DIR fixtures, backdating files with `touch -d`
 # to land on either side of each age threshold.
 
 setup() {
-  source "$BATS_TEST_DIRNAME/../limpiar_tomcat.sh"
+  source "$BATS_TEST_DIRNAME/../tomcat-cleanup.sh"
 
   TEMP_DIR="$(mktemp -d)"
   LOG_DIR="$(mktemp -d)"

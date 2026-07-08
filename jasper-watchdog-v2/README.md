@@ -235,9 +235,9 @@ You get, per check: the response time, the HTTP code, and whether `HEALTH_BODY_M
 
 Turn `DEBUG` back to `0` when you are done — otherwise the debug log grows one line every 15 seconds (logrotate covers it, but there is no reason to leave it on). It never affects the normal recovery behavior.
 
-## 11. Tomcat disk hygiene companion (`limpiar_tomcat.sh`)
+## 11. Tomcat disk hygiene companion (`tomcat-cleanup.sh`)
 
-`limpiar_tomcat.sh` is an optional companion script that reclaims the junk a busy
+`tomcat-cleanup.sh` is an optional companion script that reclaims the junk a busy
 JasperServer accumulates under `apache-tomcat/{temp,logs}`. It is intentionally
 **not** installed by `install.sh` and does **not** talk to `ctlscript` or systemd:
 it never stops the stack, so it cannot fight the watchdog. Everything is deleted
@@ -257,13 +257,13 @@ What it reclaims (all age-gated, all tunable via env vars at the top of the scri
 Never touched: `catalina.pid`, the `temp/jasperserver/` app dir, `work/`, and the
 current instance's JDBC jar.
 
-Deploy it wherever your cleanup cron already points (e.g. `/home/opc/script/limpiar_tomcat.sh`)
+Deploy it wherever your cleanup cron already points (e.g. `/home/opc/script/tomcat-cleanup.sh`)
 and dry-run it first:
 
 ```bash
-DRY_RUN=1 TOMCAT_DIR=/opt/jasperreports-server-cp-7.1.0/apache-tomcat ./limpiar_tomcat.sh
-# review /var/log/limpiar_tomcat.log, then run for real:
-./limpiar_tomcat.sh
+DRY_RUN=1 TOMCAT_DIR=/opt/jasperreports-server-cp-7.1.0/apache-tomcat ./tomcat-cleanup.sh
+# review /var/log/tomcat-cleanup.log, then run for real:
+./tomcat-cleanup.sh
 ```
 
 Because it runs safely while Tomcat is up, schedule it whenever convenient — it does
