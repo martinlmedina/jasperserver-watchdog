@@ -5,6 +5,16 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
+# The watchdog starts long-lived daemons (Tomcat, PostgreSQL via ctlscript) as
+# children during recovery. With the default KillMode=control-group, systemd
+# kills everything left in this oneshot's cgroup the instant the watchdog
+# process exits after a successful recovery -- taking down the very services it
+# just started. KillMode=process makes systemd signal only the main watchdog
+# process on stop, leaving the recovered daemons running. Closing fd 9 (the
+# flock) for spawned commands is not enough on its own: fd inheritance and
+# cgroup membership are independent, and cgroup membership is what gets the
+# daemons killed.
+KillMode=process
 ExecStart=/usr/local/sbin/jasper-watchdog-v2
 User=root
 Group=root
