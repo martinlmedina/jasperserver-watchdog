@@ -324,6 +324,44 @@ Jasper cuelga y deja un `.hprof` gigante en `temp/`. El diagnóstico (sección 5
 identifica el reporte; el fix real es optimizar/limitar ese reporte del lado
 funcional. La limpieza (sección 6) recupera el disco de los dumps.
 
+**Cuelgues de 1-2 min SIN OOM (IntDb4, en análisis desde jul/2026).** Además del
+modo anterior (crash con `.hprof`), IntDb4 muestra cuelgues donde la JVM queda
+**viva pero congelada**: el watchdog la ve lenta (responde en 5-10s) o timeoutea,
+la reinicia y recupera en ~1 min. En estos incidentes **NO hay OOM**: sin
+`.hprof`, sin `OutOfMemoryError` en logs, swap sin tocar y RAM libre. El RSS ~10 GB
+es solo `-Xmx8g` + Metaspace, JVM llena pero no reventada. Firma de **pausa larga
+de GC** o **pool de threads/conexiones agotado** (probable gatillo: reportes
+pesados QR+subreportes). Se agravó al dejar **un solo backend** detrás del LB
+(sección 2): sin redundancia, cada cuelgue lo siente todo el mundo.
+
+Para cerrar la causa raíz hace falta cazar el próximo cuelgue con datos:
+
+1. **Activar GC logging.** Agregar a `CATALINA_OPTS` en
+   `/opt/jasperreports-server-cp-7.1.0/apache-tomcat/bin/setenv.sh` (crear el
+   archivo si no existe; NO ejecutar estas líneas en la shell). Elegí según
+   `java -version`:
+   ```sh
+   # setenv.sh — Java 11+ (unified logging)
+   CATALINA_OPTS="$CATALINA_OPTS -Xlog:gc*,safepoint:file=/opt/jasperreports-server-cp-7.1.0/apache-tomcat/logs/gc.log:utctime,pid,tags:filecount=5,filesize=20m"
+   ```
+   ```sh
+   # setenv.sh — Java 8
+   CATALINA_OPTS="$CATALINA_OPTS -Xloggc:/opt/jasperreports-server-cp-7.1.0/apache-tomcat/logs/gc.log -XX:+PrintGCDetails -XX:+PrintGCDateStamps -XX:+PrintGCApplicationStoppedTime -XX:+UseGCLogFileRotation -XX:NumberOfGCLogFiles=5 -XX:GCLogFileSize=20m"
+   ```
+   Toma efecto en el próximo restart de Tomcat.
+2. **Thread dump real en el próximo incidente.** Ya corregido en el watchdog: la
+   captura tomaba el PID de PostgreSQL (su ruta contiene `jasperreports-server`)
+   en vez de la JVM, así que los thread dumps salían vacíos. Ahora ancla en
+   `org.apache.catalina.startup.Bootstrap`. *Caveat:* `jcmd/jstack` corren como
+   root; si la JVM es de otro usuario el attach puede fallar. Verificar dueño:
+   ```bash
+   ps -o user= -p "$(pgrep -f org.apache.catalina.startup.Bootstrap | head -n1)"
+   ```
+
+Con GC log + thread dump del próximo cuelgue se decide el fix real (subir
+Metaspace/tunear G1, o limitar concurrencia de reportes). Y para el dolor
+inmediato: **restaurar un segundo backend** detrás del LB.
+
 **Problemas ABIERTOS (a escalar, no son pasos de triage):**
 
 - **Corrupción atrás del WAF** — *pendiente de definir.* Falta documentar síntoma
