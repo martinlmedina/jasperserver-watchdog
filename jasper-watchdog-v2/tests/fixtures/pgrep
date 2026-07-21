@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Fake pgrep for tests. Simulates a process table and applies the -f pattern
+# (bash ERE) against each process's full command line, printing matching PIDs
+# in ascending PID order, exactly like the real pgrep.
+#
+# The table mirrors a real JasperReports CE 7.1 host: the bundled PostgreSQL
+# runs from a path that literally contains "jasperreports-server", so an
+# over-broad pattern will (incorrectly) match it.
+pattern=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -f) shift ;;
+    -*) shift ;;
+    *) pattern="$1"; shift ;;
+  esac
+done
+
+# "PID<TAB>full command line", sorted by PID ascending like real pgrep output.
+procs=(
+"1963686	/opt/jasperreports-server-cp-7.1.0/postgresql/bin/postgres.bin -D /opt/jasperreports-server-cp-7.1.0/postgresql/data"
+"2215694	/opt/jasperreports-server-cp-7.1.0/java/bin/java -Dcatalina.base=/opt/jasperreports-server-cp-7.1.0/apache-tomcat -Dcatalina.home=/opt/jasperreports-server-cp-7.1.0/apache-tomcat org.apache.catalina.startup.Bootstrap start"
+)
+
+for entry in "${procs[@]}"; do
+  pid="${entry%%$'\t'*}"
+  cmd="${entry#*$'\t'}"
+  if [[ "$cmd" =~ $pattern ]]; then
+    printf '%s\n' "$pid"
+  fi
+done

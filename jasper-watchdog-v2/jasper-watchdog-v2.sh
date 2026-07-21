@@ -247,10 +247,19 @@ capture_jasper_logs() {
   done
 }
 
+# Resolve the PID of the Tomcat JVM. We anchor on the Catalina Bootstrap main
+# class, which is present only in the JasperServer Tomcat java process. Broader
+# patterns (e.g. "jasperreports-server") also match the bundled PostgreSQL,
+# whose install path contains that string, and would make us thread-dump the
+# wrong process.
+find_jasper_java_pid() {
+  pgrep -f 'org\.apache\.catalina\.startup\.Bootstrap' | head -n1 || true
+}
+
 capture_thread_dump() {
   mark "phase=pre_restart_capture component=jvm_thread_dump"
   local java_pid
-  java_pid="$(pgrep -f 'org.apache.catalina.startup.Bootstrap|jasperreports-server|catalina.base' | head -n1 || true)"
+  java_pid="$(find_jasper_java_pid)"
 
   if [[ -z "$java_pid" ]]; then
     printf 'No Jasper/Tomcat Java PID found.\n' > "$INCIDENT/jvm_thread_dump.txt"
