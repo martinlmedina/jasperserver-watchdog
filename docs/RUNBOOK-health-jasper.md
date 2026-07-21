@@ -350,11 +350,12 @@ Para cerrar la causa raíz hace falta cazar el próximo cuelgue con datos:
    # setenv.sh — Java 8
    CATALINA_OPTS="$CATALINA_OPTS -Xloggc:/opt/jasperreports-server-cp-7.1.0/apache-tomcat/logs/gc.log -XX:+PrintGCDetails -XX:+PrintGCDateStamps -XX:+PrintGCApplicationStoppedTime -XX:+UseGCLogFileRotation -XX:NumberOfGCLogFiles=5 -XX:GCLogFileSize=20m"
    ```
-   Toma efecto en el próximo restart de Tomcat. Cuando caiga el próximo cuelgue,
-   buscar pausas largas y su causa:
+   Toma efecto en el próximo restart de Tomcat (`ctlscript.sh restart tomcat`).
+   **Con rotación en Java 8 el archivo se llama `gc.log.0.current`** (no `gc.log`
+   a secas). Cuando caiga el próximo cuelgue, buscar pausas largas y su causa:
    ```bash
    grep -E 'Full GC|Metadata GC Threshold|Total time for which application threads were stopped: [0-9]{2,}' \
-     /opt/jasperreports-server-cp-7.1.0/apache-tomcat/logs/gc.log
+     /opt/jasperreports-server-cp-7.1.0/apache-tomcat/logs/gc.log.0.current
    ```
    Sospecha principal: `Full GC (Metadata GC Threshold)` con pausas de varios
    segundos = Metaspace (512m) saturándose por compilación de reportes → subir
