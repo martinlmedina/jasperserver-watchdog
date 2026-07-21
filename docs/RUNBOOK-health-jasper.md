@@ -336,10 +336,12 @@ pesados QR+subreportes). Se agravó al dejar **un solo backend** detrás del LB
 
 Para cerrar la causa raíz hace falta cazar el próximo cuelgue con datos:
 
-1. **Activar GC logging.** Agregar a `CATALINA_OPTS` en
-   `/opt/jasperreports-server-cp-7.1.0/apache-tomcat/bin/setenv.sh` (crear el
-   archivo si no existe; NO ejecutar estas líneas en la shell). Elegí según
-   `java -version`:
+1. **Activar GC logging.** Agregar a `CATALINA_OPTS` (no a JAVA_OPTS, así el
+   shutdown de Tomcat no pisa el mismo `gc.log`) en
+   `/opt/jasperreports-server-cp-7.1.0/apache-tomcat/bin/setenv.sh` (NO ejecutar
+   estas líneas en la shell). **IntDb4 corre Java 8 (1.8.0_151)** → usar el
+   bloque Java 8. Confirmar en otros nodos con
+   `/opt/jasperreports-server-cp-7.1.0/java/bin/java -version`:
    ```sh
    # setenv.sh — Java 11+ (unified logging)
    CATALINA_OPTS="$CATALINA_OPTS -Xlog:gc*,safepoint:file=/opt/jasperreports-server-cp-7.1.0/apache-tomcat/logs/gc.log:utctime,pid,tags:filecount=5,filesize=20m"
@@ -348,7 +350,15 @@ Para cerrar la causa raíz hace falta cazar el próximo cuelgue con datos:
    # setenv.sh — Java 8
    CATALINA_OPTS="$CATALINA_OPTS -Xloggc:/opt/jasperreports-server-cp-7.1.0/apache-tomcat/logs/gc.log -XX:+PrintGCDetails -XX:+PrintGCDateStamps -XX:+PrintGCApplicationStoppedTime -XX:+UseGCLogFileRotation -XX:NumberOfGCLogFiles=5 -XX:GCLogFileSize=20m"
    ```
-   Toma efecto en el próximo restart de Tomcat.
+   Toma efecto en el próximo restart de Tomcat. Cuando caiga el próximo cuelgue,
+   buscar pausas largas y su causa:
+   ```bash
+   grep -E 'Full GC|Metadata GC Threshold|Total time for which application threads were stopped: [0-9]{2,}' \
+     /opt/jasperreports-server-cp-7.1.0/apache-tomcat/logs/gc.log
+   ```
+   Sospecha principal: `Full GC (Metadata GC Threshold)` con pausas de varios
+   segundos = Metaspace (512m) saturándose por compilación de reportes → subir
+   `-XX:MaxMetaspaceSize` y/o revisar leak de classloaders.
 2. **Thread dump real en el próximo incidente.** Ya corregido en el watchdog: la
    captura tomaba el PID de PostgreSQL (su ruta contiene `jasperreports-server`)
    en vez de la JVM, así que los thread dumps salían vacíos. Ahora ancla en
