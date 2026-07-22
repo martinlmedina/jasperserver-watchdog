@@ -256,6 +256,37 @@ find_jasper_java_pid() {
   pgrep -f 'org\.apache\.catalina\.startup\.Bootstrap' | head -n1 || true
 }
 
+# True when the file holds at least one JVM thread stack (lines starting with a
+# quoted thread name). Used to tell a real dump from an attach-failure stub.
+thread_dump_has_threads() {
+  grep -q '^"' "$1" 2>/dev/null
+}
+
+# Fallback for when the attach API can't reach the JVM. During a hang the JVM
+# often can't reach a safepoint, so jcmd/jstack fail with "target process not
+# responding" and leave an empty dump. SIGQUIT makes the JVM print a full thread
+# dump to its stdout (catalina.out) instead; it lands once the JVM reaches a
+# safepoint, even if that is after our wait. We snapshot catalina.out's length,
+# signal, wait, and append only the newly written lines.
+capture_sigquit_dump() {
+  local pid="$1" catalina_out="$2" outfile="$3"
+  if [[ ! -f "$catalina_out" ]]; then
+    printf '\n=== SIGQUIT fallback: catalina.out not found at %s ===\n' "$catalina_out" >> "$outfile"
+    return 0
+  fi
+  local before
+  before="$(wc -l < "$catalina_out")"
+  if ! kill -3 "$pid" 2>>"$outfile"; then
+    printf '\n=== SIGQUIT fallback: kill -3 %s failed ===\n' "$pid" >> "$outfile"
+    return 0
+  fi
+  sleep "${SIGQUIT_WAIT_SEC:-3}"
+  {
+    printf '\n=== SIGQUIT thread dump (attach unavailable; from catalina.out) ===\n'
+    tail -n "+$((before + 1))" "$catalina_out"
+  } >> "$outfile"
+}
+
 capture_thread_dump() {
   mark "phase=pre_restart_capture component=jvm_thread_dump"
   local java_pid
@@ -277,6 +308,14 @@ capture_thread_dump() {
     capture jvm_thread_dump.txt timeout --signal=TERM --kill-after=2s "${CAPTURE_TIMEOUT_SEC}s" jstack -l "$java_pid"
   else
     printf 'jcmd and jstack are not available; no JVM thread dump could be collected.\n' > "$INCIDENT/jvm_thread_dump.txt"
+  fi
+
+  # The attach API needs the JVM to reach a safepoint. During a hang it often
+  # can't, so the dump above is an empty attach-failure stub. Fall back to
+  # SIGQUIT, which routes a full dump through catalina.out.
+  if ! thread_dump_has_threads "$INCIDENT/jvm_thread_dump.txt"; then
+    mark "phase=pre_restart_capture component=jvm_thread_dump fallback=sigquit"
+    capture_sigquit_dump "$java_pid" "$JASPER_LOG_DIR/catalina.out" "$INCIDENT/jvm_thread_dump.txt"
   fi
 }
 
@@ -615,6 +654,7 @@ main() {
   HEALTH_MAX_TIME_SEC="${HEALTH_MAX_TIME_SEC:-10}"
   CONFIRM_DELAY_SEC="${CONFIRM_DELAY_SEC:-5}"
   CAPTURE_TIMEOUT_SEC="${CAPTURE_TIMEOUT_SEC:-8}"
+  SIGQUIT_WAIT_SEC="${SIGQUIT_WAIT_SEC:-3}"
   PG_CONNECT_TIMEOUT_SEC="${PG_CONNECT_TIMEOUT_SEC:-3}"
   PG_STATEMENT_TIMEOUT_MS="${PG_STATEMENT_TIMEOUT_MS:-3500}"
   PG_LOCK_TIMEOUT_MS="${PG_LOCK_TIMEOUT_MS:-800}"

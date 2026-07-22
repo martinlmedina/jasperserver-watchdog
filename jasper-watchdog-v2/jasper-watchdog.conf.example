@@ -65,6 +65,10 @@ HEALTH_CONNECT_TIMEOUT_SEC=3
 HEALTH_MAX_TIME_SEC=10
 CONFIRM_DELAY_SEC=5
 CAPTURE_TIMEOUT_SEC=8
+# Seconds to wait after SIGQUIT for the JVM to flush its thread dump to
+# catalina.out. Only used as a fallback when the attach API (jcmd/jstack) can't
+# reach a hung JVM.
+SIGQUIT_WAIT_SEC=3
 RECOVERY_TIMEOUT_SEC=180
 RECOVERY_RETRY_SEC=3
 TAIL_LINES=1200
