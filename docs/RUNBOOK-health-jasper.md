@@ -392,8 +392,15 @@ la JVM. El restart lo resetea; por eso reaparece cada pocas horas.
   los GC. Confirmá la versión de la librería con
   `ls <TOMCAT>/webapps/jasperserver/WEB-INF/lib/jasperreports-*.jar`.
   Fuente: `JRAbstractJavaCompiler.java` (Jaspersoft/jasperreports) + config.reference.html.
-- **Mitigación (buy time, no cura).** Subir `-XX:MaxMetaspaceSize` 512m→1024m en
-  `setenv.sh`. Espacía los cuelgues; no elimina el leak.
+- **Mitigación (buy time, no cura).** Subir `-XX:MaxMetaspaceSize` de 512m a
+  **1024m** en la línea de `JAVA_OPTS` de
+  `/opt/jasperreports-server-cp-7.1.0/apache-tomcat/bin/setenv.sh`, y
+  `ctlscript.sh restart tomcat`. Espacía los cuelgues; no elimina el leak.
+  Hay RAM de sobra (heap 8g + metaspace 1g + overhead ≈ 10,5g sobre 15,7g).
+  **No subir más de 1024m si NO se aplicó la cura:** un Metaspace mayor tarda más
+  en llenarse pero, cuando se llena, el Full GC escanea más clases → la pausa STW
+  es más larga. Con la cura aplicada esto deja de importar. Verificar:
+  `ps -o args= -p "$(pgrep -f org.apache.catalina.startup.Bootstrap | head -1)" | tr ' ' '\n' | grep MaxMetaspace`
 - **Dolor inmediato:** restaurar un segundo backend detrás del LB.
 
 **Problemas ABIERTOS (a escalar, no son pasos de triage):**
