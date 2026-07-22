@@ -329,10 +329,10 @@ modo anterior (crash con `.hprof`), IntDb4 muestra cuelgues donde la JVM queda
 **viva pero congelada**: el watchdog la ve lenta (responde en 5-10s) o timeoutea,
 la reinicia y recupera en ~1 min. En estos incidentes **NO hay OOM**: sin
 `.hprof`, sin `OutOfMemoryError` en logs, swap sin tocar y RAM libre. El RSS ~10 GB
-es solo `-Xmx8g` + Metaspace, JVM llena pero no reventada. Firma de **pausa larga
-de GC** o **pool de threads/conexiones agotado** (probable gatillo: reportes
-pesados QR+subreportes). Se agravó al dejar **un solo backend** detrás del LB
-(sección 2): sin redundancia, cada cuelgue lo siente todo el mundo.
+es solo `-Xmx8g` + Metaspace, JVM llena pero no reventada. **Causa raíz
+confirmada (jul/2026): leak de classloaders → presión de Metaspace** (detalle y
+cura abajo). Se agravó al dejar **un solo backend** detrás del LB (sección 2):
+sin redundancia, cada cuelgue lo siente todo el mundo.
 
 Para cerrar la causa raíz hace falta cazar el próximo cuelgue con datos:
 
@@ -363,15 +363,38 @@ Para cerrar la causa raíz hace falta cazar el próximo cuelgue con datos:
 2. **Thread dump real en el próximo incidente.** Ya corregido en el watchdog: la
    captura tomaba el PID de PostgreSQL (su ruta contiene `jasperreports-server`)
    en vez de la JVM, así que los thread dumps salían vacíos. Ahora ancla en
-   `org.apache.catalina.startup.Bootstrap`. *Caveat:* `jcmd/jstack` corren como
-   root; si la JVM es de otro usuario el attach puede fallar. Verificar dueño:
-   ```bash
-   ps -o user= -p "$(pgrep -f org.apache.catalina.startup.Bootstrap | head -n1)"
-   ```
+   `org.apache.catalina.startup.Bootstrap` (fix v2.1.10). *Nota:* durante el hang
+   la JVM no llega a un safepoint, así que el attach de `jcmd/jstack` falla
+   (`target process not responding`) y el dump sale vacío. El watchdog (fix
+   v2.1.11) cae a `kill -3`, que vuelca el thread dump a `catalina.out` sin
+   depender del attach.
 
-Con GC log + thread dump del próximo cuelgue se decide el fix real (subir
-Metaspace/tunear G1, o limitar concurrencia de reportes). Y para el dolor
-inmediato: **restaurar un segundo backend** detrás del LB.
+**Causa raíz confirmada y cura.** El `jstat -gcutil` mostró Metaspace al ~93% a
+los ~40 min de uptime (old gen al 15% → no es heap), y un `jcmd <pid> GC.run`
+(Full GC forzado) **no liberó** el Metaspace → **leak de classloaders**.
+Mecanismo: JasperReports genera una clase evaluadora por reporte, cada una en su
+propio `JRClassLoader`, y un workaround interno (`class.reference.fix`, activo por
+default) los pinea en un `ThreadLocal` sobre los hilos worker de Tomcat → el GC
+no los libera → Metaspace sube monótono hasta que el thrashing de Full GC cuelga
+la JVM. El restart lo resetea; por eso reaparece cada pocas horas.
+
+**Fix (dos carriles):**
+
+- **Cura (config JasperReports).** En
+  `<TOMCAT>/webapps/jasperserver/WEB-INF/classes/jasperreports.properties`:
+  ```properties
+  net.sf.jasperreports.evaluator.class.reference.fix.enabled=false
+  ```
+  Default `true`; existe desde JR 3.0.0 (presente en 7.1). No cambia el lenguaje
+  ni la performance de los reportes: solo suelta la referencia que impedía liberar
+  los classloaders. Riesgo bajo (reexpone un crash de JVM viejo, irrelevante en
+  JDK 8). Restart de Tomcat y monitorear que el Metaspace se estabilice/baje tras
+  los GC. Confirmá la versión de la librería con
+  `ls <TOMCAT>/webapps/jasperserver/WEB-INF/lib/jasperreports-*.jar`.
+  Fuente: `JRAbstractJavaCompiler.java` (Jaspersoft/jasperreports) + config.reference.html.
+- **Mitigación (buy time, no cura).** Subir `-XX:MaxMetaspaceSize` 512m→1024m en
+  `setenv.sh`. Espacía los cuelgues; no elimina el leak.
+- **Dolor inmediato:** restaurar un segundo backend detrás del LB.
 
 **Problemas ABIERTOS (a escalar, no son pasos de triage):**
 
