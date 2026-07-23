@@ -410,12 +410,35 @@ la JVM. El restart lo resetea; por eso reaparece cada pocas horas.
   MONITOR **público** falla pero los 3 backends responden OK directo por IP
   (sección 2), el problema está en la capa WAF/LB, no en Jasper. Completar cuando
   se acuerde.
-- **Reportes de INTDB5 (sipssa) disparados desde jasper-intdb4** — investigación
-  abierta con los equipos. Para ver las requests SIPSSA que llegan a IntDb4:
+- **Reportes de INTDB5 (sipssa) disparados desde jasper-intdb4** — *causa de
+  cuelgues DIAGNOSTICADA (jul/2026); queda ejecución del lado reportes/DBA/
+  integración.* El reporte `/reports/SIPSSA/PRE_RP_VTAS_FOND` (con subreportes +
+  QR/imágenes) es ejecutado por la integración SIPSSA desde la IP `10.0.0.39`
+  (`GET /rest_v2/reports/reports/SIPSSA/PRE_RP_VTAS_FOND.pdf?P_CVEN0100_ID=...`).
+  **Todas las ejecuciones dan HTTP 400** porque dos subreportes fallan al consultar
+  la **base Oracle de negocio** (no el Postgres del repo; stacks con driver `T4C`):
+  - `ERP_CVEN0100_EMI_CON_QR` (subreporte del QR) → `ORA-00903: invalid table name`
+    (objeto Oracle inexistente / falta synonym o grant / schema equivocado).
+  - `subreport_fond_Detalle_importe` → `ORA-01013: user requested cancel` (query
+    cancelada por timeout = demasiado lenta).
+
+  La integración **reintenta el request fallido en loop** (decenas de intentos,
+  varios por segundo, mismo `P_CVEN0100_ID`); cada reintento spawnea threads de
+  fill de subreporte que quedan esperando a Oracle antes de fallar → se acumulan →
+  con **un solo backend** saturan la JVM → la probe a `/reports/MONITOR` timeoutea
+  → el watchdog reinicia. Las ráfagas de reintentos clusterizan justo antes de
+  cada incidente. Cómo verlo:
   ```bash
-  grep -i SIPSSA /opt/jasperreports-server-cp-7.1.0/apache-tomcat/logs/localhost_access_log.<fecha>.txt
+  LOGS=/opt/jasperreports-server-cp-7.1.0/apache-tomcat/logs
+  # ejecuciones y su status (todas 400):
+  grep -hi 'PRE_RP_VTAS_FOND' "$LOGS"/localhost_access_log.*.txt | awk '{print $(NF-1)}' | sort | uniq -c
+  # el stack real de la falla del subreporte (en catalina.out):
+  grep -B2 -A30 -iE 'Fill [0-9]+: exception' "$LOGS"/catalina.out | head -80
   ```
-  Estado: en análisis.
+  **Fixes (funcionales/Oracle, ninguno de infra):** (1) restaurar/corregir la tabla
+  del subreporte QR (`ERP_CVEN0100_EMI_CON_QR`); (2) optimizar la query lenta de
+  `subreport_fond_Detalle_importe` (índice/plan); (3) que la integración de INTDB5
+  (`10.0.0.39`) **deje de reintentar en loop** un request que da 400.
 
 **Escalado:** si tras el triage no se resuelve, o si es uno de los problemas
 abiertos → escalar a *(completar: responsable / canal de guardia)*.
