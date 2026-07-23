@@ -197,7 +197,7 @@ psql_snapshot() {
     echo "-- statement_timeout=${PG_STATEMENT_TIMEOUT_MS}ms lock_timeout=${PG_LOCK_TIMEOUT_MS}ms"
     PGCONNECT_TIMEOUT="$PG_CONNECT_TIMEOUT_SEC" PGPASSFILE="$PGPASSFILE" \
       timeout --signal=TERM --kill-after=2s "${CAPTURE_TIMEOUT_SEC}s" \
-      psql -w -X -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" \
+      "$PSQL_BIN" -w -X -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" \
       -v ON_ERROR_STOP=1 -P pager=off <<SQL
 SET statement_timeout = '${PG_STATEMENT_TIMEOUT_MS}ms';
 SET lock_timeout = '${PG_LOCK_TIMEOUT_MS}ms';
@@ -677,6 +677,7 @@ main() {
   JASPER_HOME="${JASPER_HOME:-/opt/jasperreports-server-cp-7.1.0}"
   CTLSCRIPT="${CTLSCRIPT:-$JASPER_HOME/ctlscript.sh}"
   PG_ISREADY_BIN="${PG_ISREADY_BIN:-$JASPER_HOME/postgresql/bin/pg_isready}"
+  PSQL_BIN="${PSQL_BIN:-$JASPER_HOME/postgresql/bin/psql}"
   PG_COMPONENT="${PG_COMPONENT:-postgresql}"
   TOMCAT_COMPONENT="${TOMCAT_COMPONENT:-tomcat}"
   CTL_ACTION_TIMEOUT_SEC="${CTL_ACTION_TIMEOUT_SEC:-120}"

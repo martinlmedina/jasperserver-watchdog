@@ -21,6 +21,9 @@ SLOW_RESPONSE_THRESHOLD_SEC=4
 JASPER_HOME="/opt/jasperreports-server-cp-7.1.0"
 CTLSCRIPT="$JASPER_HOME/ctlscript.sh"
 PG_ISREADY_BIN="$JASPER_HOME/postgresql/bin/pg_isready"
+# psql for the PostgreSQL evidence snapshot. Bundled build is not on PATH, so
+# point at the one shipped with JasperServer.
+PSQL_BIN="$JASPER_HOME/postgresql/bin/psql"
 PG_COMPONENT="postgresql"
 TOMCAT_COMPONENT="tomcat"
 CTL_ACTION_TIMEOUT_SEC=120
